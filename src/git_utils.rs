@@ -222,18 +222,18 @@ impl GitUtils {
 
     fn deduplicate_conflicts(conflicts: &[ResolvedConflict]) -> Vec<ResolvedConflict> {
         use std::collections::HashMap;
-        let mut map: HashMap<String, Vec<&ResolvedConflict>> = HashMap::new();
+        let mut map: HashMap<(String, usize), Vec<&ResolvedConflict>> = HashMap::new();
 
-        // Group conflicts by resolved_version
+        // Group conflicts by resolved_version and start_line
         for conflict in conflicts {
-            map.entry(conflict.resolved_version.clone())
+            map.entry((conflict.resolved_version.clone(), conflict.conflict.start_line))
                 .or_default()
                 .push(conflict);
         }
 
         // For each group, create a new conflict with combined model names
         let mut result = Vec::new();
-        for (resolved_version, group) in map {
+        for ((resolved_version, _), group) in map {
             let model = group
                 .iter()
                 .map(|c| c.model.as_str())
@@ -254,9 +254,9 @@ impl GitUtils {
         let mut seen = std::collections::HashSet::new();
 
         for original in conflicts {
-            let key = &original.resolved_version;
+            let key = (&original.resolved_version, original.conflict.start_line);
             if seen.insert(key)
-                && let Some(pos) = result.iter().position(|r| &r.resolved_version == key)
+                && let Some(pos) = result.iter().position(|r| (&r.resolved_version, r.conflict.start_line) == key)
             {
                 ordered_result.push(result[pos].clone());
             }
