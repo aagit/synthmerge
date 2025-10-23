@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
     }
 
     // Initialize git utilities
-    let git_utils = GitUtils::new(args.verbose);
+    let git_utils = GitUtils::new();
 
     // Try to cherry-pick with diff3 mode
     let result = git_utils.check_diff3();

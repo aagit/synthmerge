@@ -77,10 +77,6 @@ impl ConflictResolver {
 	    results.sort_by_key(|k| k.1);
             let results: Vec<_> = results.into_iter().map(|r| r.0).collect();
 
-            if self.verbose {
-                println!("resolved:\n{:?}", results);
-            }
-
             // Validate that the content starts with head_context and ends with tail_context
             for (i, result) in results.iter().enumerate() {
                 let result = match result {
@@ -109,9 +105,6 @@ impl ConflictResolver {
                     if !resolved_string.starts_with(&conflict.head_context) {
                         eprintln!("Warning: Skipped {} - doesn't start with head context", model);
                         continue;
-                    }
-                    if self.verbose {
-                        println!("tail_context: {:?}", conflict.tail_context);
                     }
                     if !resolved_string.ends_with(&conflict.tail_context) {
                         eprintln!("Warning: Skipped {} - doesn't end with tail context", model);

@@ -107,10 +107,6 @@ impl ApiClient {
         if let Some(reasoning_effort) = &request.reasoning_effort {
             payload["reasoning_effort"] = reasoning_effort.clone().into();
         }
-        if self.verbose {
-            println!("headers: {:?}", headers);
-            println!("json: {}", payload);
-        }
 
         let response = self
             .client
@@ -123,7 +119,7 @@ impl ApiClient {
 
         let response_text = response.text().await.context("Failed to read response")?;
         if self.verbose {
-            println!("Response:\n{}", response_text);
+            println!("Response raw:\n{}", response_text);
         }
 
         // Parse JSON response to extract the content
@@ -162,7 +158,7 @@ impl ApiClient {
 
         let response_text = response.text().await.context("Failed to read response")?;
         if self.verbose {
-            println!("Response:\n{}", response_text);
+            println!("Response raw:\n{}", response_text);
         }
 
         // Try to parse as JSON and extract content
@@ -186,9 +182,7 @@ impl ApiClient {
             })
             .collect::<Result<Vec<_>, _>>()?
             .join("\n");
-        if self.verbose {
-            println!("Content:\n{}", content);
-        }
+
         Ok(content.to_string())
     }
 }
