@@ -43,7 +43,7 @@ impl ConflictResolver {
                 println!("Message:\n{}", message);
             }
 
-	    // Try to resolve with all endpoints in parallel
+            // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
             for (order, endpoint) in endpoints.iter().enumerate() {
                 let prompt = prompt.clone();
@@ -61,20 +61,20 @@ impl ConflictResolver {
                 futures.push(handle);
             }
 
-	    let mut results = Vec::new();
-	    while !futures.is_empty() {
-		let (result, _, remaining) = select_all(futures).await;
+            let mut results = Vec::new();
+            while !futures.is_empty() {
+                let (result, _, remaining) = select_all(futures).await;
                 futures = remaining;
                 match result {
-		    Ok((result, duration, name, order)) => {
+                    Ok((result, duration, name, order)) => {
                         println!(" - {} completed in {} seconds", name, duration);
                         results.push((result, order));
-		    }
-		    Err(e) => return Err(anyhow::anyhow!("Task failed: {}", e)),
+                    }
+                    Err(e) => return Err(anyhow::anyhow!("Task failed: {}", e)),
                 }
-	    }
+            }
 
-	    results.sort_by_key(|k| k.1);
+            results.sort_by_key(|k| k.1);
             let results: Vec<_> = results.into_iter().map(|r| r.0).collect();
 
             // Validate that the content starts with head_context and ends with tail_context
@@ -82,7 +82,10 @@ impl ConflictResolver {
                 let result = match result {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!("Warning: Skipping {} due to error: {}", endpoints[i].name, e);
+                        eprintln!(
+                            "Warning: Skipping {} due to error: {}",
+                            endpoints[i].name, e
+                        );
                         continue;
                     }
                 };
@@ -91,19 +94,25 @@ impl ConflictResolver {
                 let resolved = match resolved {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!("Warning: Skipping {} due to error: {}", endpoints[i].name, e);
+                        eprintln!(
+                            "Warning: Skipping {} due to error: {}",
+                            endpoints[i].name, e
+                        );
                         continue;
                     }
                 };
 
-		for (n, resolved_string) in resolved.iter().enumerate() {
+                for (n, resolved_string) in resolved.iter().enumerate() {
                     let model = if n > 0 {
                         format!("{} #{}", endpoints[i].name, n + 1)
                     } else {
                         endpoints[i].name.clone()
                     };
                     if !resolved_string.starts_with(&conflict.head_context) {
-                        eprintln!("Warning: Skipped {} - doesn't start with head context", model);
+                        eprintln!(
+                            "Warning: Skipped {} - doesn't start with head context",
+                            model
+                        );
                         continue;
                     }
                     if !resolved_string.ends_with(&conflict.tail_context) {

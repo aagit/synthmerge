@@ -158,7 +158,7 @@ impl GitUtils {
 
         for conflict in conflicts.iter().rev() {
             println!(
-		"Applying resolved conflict for: {}:{} - {}",
+                "Applying resolved conflict for: {}:{} - {}",
                 conflict.conflict.file_path, conflict.conflict.start_line, conflict.model
             );
 
@@ -214,9 +214,12 @@ impl GitUtils {
 
         // Group conflicts by resolved_version and start_line
         for conflict in conflicts {
-            map.entry((conflict.resolved_version.clone(), conflict.conflict.start_line))
-                .or_default()
-                .push(conflict);
+            map.entry((
+                conflict.resolved_version.clone(),
+                conflict.conflict.start_line,
+            ))
+            .or_default()
+            .push(conflict);
         }
 
         // For each group, create a new conflict with combined model names
@@ -244,7 +247,9 @@ impl GitUtils {
         for original in conflicts {
             let key = (&original.resolved_version, original.conflict.start_line);
             if seen.insert(key)
-                && let Some(pos) = result.iter().position(|r| (&r.resolved_version, r.conflict.start_line) == key)
+                && let Some(pos) = result
+                    .iter()
+                    .position(|r| (&r.resolved_version, r.conflict.start_line) == key)
             {
                 ordered_result.push(result[pos].clone());
             }
