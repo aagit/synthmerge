@@ -166,8 +166,8 @@ impl GitUtils {
 
         for conflict in conflicts.iter().rev() {
             println!(
-                "Applying resolved conflict for: {} at line {}",
-                conflict.conflict.file_path, conflict.conflict.start_line
+		"Applying resolved conflict for: {}:{} - {}",
+                conflict.conflict.file_path, conflict.conflict.start_line, conflict.model
             );
 
             // Read the file

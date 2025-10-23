@@ -23,7 +23,7 @@ impl ConflictResolver {
 
         for (i, conflict) in conflicts.iter().enumerate() {
             println!(
-                "Resolving conflict {} of {} in {} at line {}",
+                "Resolving conflict {} of {} in {}:{}",
                 i + 1,
                 conflicts.len(),
                 conflict.file_path,
@@ -75,7 +75,7 @@ impl ConflictResolver {
                 let result = match result {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!("Warning: Skipping due to error: {}", e);
+                        eprintln!("Warning: Skipping {} due to error: {}", endpoints[i].name, e);
                         continue;
                     }
                 };
@@ -84,21 +84,26 @@ impl ConflictResolver {
                 let resolved = match resolved {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!("Warning: Skipping due to error: {}", e);
+                        eprintln!("Warning: Skipping {} due to error: {}", endpoints[i].name, e);
                         continue;
                     }
                 };
 
-                for (n, resolved_string) in resolved.iter().enumerate() {
+		for (n, resolved_string) in resolved.iter().enumerate() {
+                    let model = if n > 0 {
+                        format!("{} #{}", endpoints[i].name, n + 1)
+                    } else {
+                        endpoints[i].name.clone()
+                    };
                     if !resolved_string.starts_with(&conflict.head_context) {
-                        eprintln!("Warning: Skipped - doesn't start with head context");
+                        eprintln!("Warning: Skipped {} - doesn't start with head context", model);
                         continue;
                     }
                     if self.verbose {
                         println!("tail_context: {:?}", conflict.tail_context);
                     }
                     if !resolved_string.ends_with(&conflict.tail_context) {
-                        eprintln!("Warning: Skipped - doesn't end with tail context");
+                        eprintln!("Warning: Skipped {} - doesn't end with tail context", model);
                         continue;
                     }
                     //reduce resolved to the range between head_context and tail_context
@@ -109,11 +114,7 @@ impl ConflictResolver {
                     resolved_conflicts.push(ResolvedConflict {
                         conflict: conflict.clone(),
                         resolved_version: resolved_content,
-                        model: if n > 0 {
-                            format!("{} #{}", endpoints[i].name, n + 1)
-                        } else {
-                            endpoints[i].name.clone()
-                        },
+                        model,
                     });
                 }
             }
