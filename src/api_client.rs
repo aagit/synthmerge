@@ -212,3 +212,7 @@ impl crate::config::EndpointTypeConfig {
         }
     }
 }
+
+// Local Variables:
+// rust-format-on-save: t
+// End:

@@ -69,3 +69,7 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+// Local Variables:
+// rust-format-on-save: t
+// End:

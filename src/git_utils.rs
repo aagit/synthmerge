@@ -336,3 +336,7 @@ pub struct ResolvedConflict {
     pub resolved_version: String,
     pub model: String,
 }
+
+// Local Variables:
+// rust-format-on-save: t
+// End:

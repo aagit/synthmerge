@@ -78,3 +78,7 @@ mod tests {
         assert_eq!(config.endpoints[2].name, "Gemini 2.5 pro");
     }
 }
+
+// Local Variables:
+// rust-format-on-save: t
+// End:

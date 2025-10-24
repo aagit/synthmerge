@@ -225,3 +225,7 @@ Rewrite the 3 lines after <|code_start|> and the 3 lines before <|code_end|> exa
         Ok(results)
     }
 }
+
+// Local Variables:
+// rust-format-on-save: t
+// End:
