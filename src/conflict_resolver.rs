@@ -53,9 +53,7 @@ impl ConflictResolver {
             let patch = self.create_patch(conflict);
             let code = self.create_code(conflict);
             let message = self.create_message(conflict);
-            if self.args.verbose {
-                println!("Message:\n{}", message);
-            }
+            log::info!("Message:\n{}", message);
 
             // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
@@ -114,10 +112,7 @@ impl ConflictResolver {
                 let result = match result {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!(
-                            "Warning: Skipping {} due to error: {}",
-                            endpoints[i].name, e
-                        );
+                        log::warn!("Skipping {} due to error: {}", endpoints[i].name, e);
                         continue;
                     }
                 };
@@ -126,10 +121,7 @@ impl ConflictResolver {
                 let resolved = match resolved {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!(
-                            "Warning: Skipping {} due to error: {}",
-                            endpoints[i].name, e
-                        );
+                        log::warn!("Skipping {} due to error: {}", endpoints[i].name, e);
                         continue;
                     }
                 };
@@ -141,14 +133,11 @@ impl ConflictResolver {
                         endpoints[i].name.clone()
                     };
                     if !resolved_string.starts_with(&conflict.head_context) {
-                        eprintln!(
-                            "Warning: Skipped {} - doesn't start with head context",
-                            model
-                        );
+                        log::warn!("Skipping {} - doesn't start with head context", model);
                         continue;
                     }
                     if !resolved_string.ends_with(&conflict.tail_context) {
-                        eprintln!("Warning: Skipped {} - doesn't end with tail context", model);
+                        log::warn!("Skipping {} - doesn't end with tail context", model);
                         continue;
                     }
                     //reduce resolved to the range between head_context and tail_context
@@ -156,8 +145,8 @@ impl ConflictResolver {
                         ..resolved_string.len() - conflict.tail_context.len()]
                         .to_string();
                     if !resolved_content.is_empty() && !resolved_content.ends_with('\n') {
-                        eprintln!(
-                            "Warning: Skipped {} - resolved content is not newline terminated",
+                        log::warn!(
+                            "Skipping {} - resolved content is not newline terminated",
                             model
                         );
                         continue;
@@ -269,9 +258,7 @@ Rewrite the {} lines after {} and the {} lines before {} exactly the same, inclu
         let mut results = Vec::new();
         let mut start = 0;
 
-        if self.args.verbose {
-            println!("Response:\n{}", response.response);
-        }
+        log::info!("Response:\n{}", response.response);
 
         while let Some(start_pos) = response.response[start..].find(&start_marker) {
             let start_pos = start + start_pos;

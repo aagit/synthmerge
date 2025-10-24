@@ -7,9 +7,6 @@ use crate::git_utils::GitUtils;
 use anyhow::Result;
 use clap::Parser;
 
-use env_logger::{Builder, WriteStyle};
-use log::LevelFilter;
-
 mod api_client;
 mod config;
 mod conflict_resolver;
@@ -35,22 +32,25 @@ struct Args {
     context_lines: u32,
 }
 
+fn log_init() {
+    let env = env_logger::Env::default()
+        .default_filter_or("warn")
+        .default_write_style_or("always");
+    env_logger::Builder::from_env(env)
+        .format_timestamp(None)
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    Builder::new()
-        .filter(None, LevelFilter::Error)
-        .write_style(WriteStyle::Always)
-        .build();
-
+    log_init();
     let args = Args::parse();
 
     // Load configuration
     let config_path = std::fs::canonicalize(shellexpand::full(&args.config_path)?.as_ref())?;
     let config = Config::load(&config_path)?;
 
-    if args.verbose {
-        println!("Using config file: {}", args.config_path);
-    }
+    log::info!("Using config file: {}", args.config_path);
 
     // Initialize git utilities
     let git_utils = GitUtils::new(args.context_lines);
@@ -64,9 +64,7 @@ async fn main() -> Result<()> {
 
     // Check if we're in a cherry-pick and extract commit if needed
     let git_diff = if let Some(commit_hash) = git_utils.find_commit_hash()? {
-        if args.verbose {
-            println!("Extracting diff for commit {}", commit_hash);
-        }
+        log::info!("Extracting diff for commit {}", commit_hash);
         git_utils.extract_diff(&commit_hash)?
     } else {
         None

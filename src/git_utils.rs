@@ -189,10 +189,7 @@ impl GitUtils {
             let marker = format!("{}{}\n", marker_raw, conflict.model);
             let current_line = &lines[insert_line];
             if current_line != "=======\n" && !current_line.starts_with(marker_raw) {
-                eprintln!(
-                    "Error: Invalid conflict marker found at line {}",
-                    insert_line
-                );
+                log::error!("Invalid conflict marker found at line {}", insert_line);
                 continue;
             }
             lines.insert(insert_line, marker);
@@ -288,9 +285,7 @@ impl GitUtils {
         let merge_msg_content = match fs::read_to_string(&merge_msg_path) {
             Ok(content) => content,
             Err(_) => {
-                eprintln!(
-                    "If you use the AI generated code please add \"Assisted-by: synthmerge\""
-                );
+                println!("If you use the AI generated code please add \"Assisted-by: synthmerge\"");
                 return Ok(());
             }
         };

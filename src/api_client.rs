@@ -88,9 +88,7 @@ impl ApiClient {
         } else {
             request.prompt.clone()
         };
-        if self.verbose {
-            println!("Prompt:\n{}", prompt);
-        }
+        log::debug!("Prompt:\n{}", prompt);
         let mut payload = serde_json::json!({
             "model": self.config.config.model(),
             "messages": [
@@ -113,9 +111,7 @@ impl ApiClient {
             .context("Failed to send request to OpenAI API")?;
 
         let response_text = response.text().await.context("Failed to read response")?;
-        if self.verbose {
-            println!("Response raw:\n{}", response_text);
-        }
+        log::debug!("Response raw:\n{}", response_text);
 
         // Parse JSON response to extract the content
         let json_response: serde_json::Value =
@@ -160,9 +156,7 @@ impl ApiClient {
             .context("Failed to send request to patchpal API")?;
 
         let response_text = response.text().await.context("Failed to read response")?;
-        if self.verbose {
-            println!("Response raw:\n{}", response_text);
-        }
+        log::debug!("Response raw:\n{}", response_text);
 
         // Try to parse as JSON and extract content
         let json_response: serde_json::Value =
