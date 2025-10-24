@@ -1,2 +1,9 @@
-Cargo.lock
+# Cargo
 target/
+Cargo.lock
+
+# Global tags
+GTAGS
+GRTAGS
+GSYMS
+GPATH
