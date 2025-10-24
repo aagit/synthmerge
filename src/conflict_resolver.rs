@@ -35,7 +35,7 @@ impl ConflictResolver {
             let endpoints = config.get_all_endpoints();
 
             // Create the prompt for AI resolution
-            let prompt = self.create_prompt();
+            let prompt = self.create_prompt(conflict);
             let patch = self.create_patch(conflict);
             let code = self.create_code(conflict);
             let message = self.create_message(conflict);
@@ -137,14 +137,17 @@ impl ConflictResolver {
     }
 
     /// Create a prompt for the AI to resolve the conflict
-    fn create_prompt(&self) -> String {
-        r#"Apply the patch between <|patch_start|><|patch_end|> to the code between <|code_start|><|code_end|>.
+    fn create_prompt(&self, conflict: &Conflict) -> String {
+        format!(
+            r#"Apply the patch between <|patch_start|><|patch_end|> to the code between <|code_start|><|code_end|>.
 
 Reason about the patch and don't alter any line of code that doesn't start with a + or - sign in the patch.
 
 Finally answer with the patched code between <|code_start|><|code_end|>.
 
-Rewrite the 3 lines after <|code_start|> and the 3 lines before <|code_end|> exactly the same, including all empty lines."#.to_string()
+Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> exactly the same, including all empty lines."#,
+            conflict.nr_head_context_lines, conflict.nr_tail_context_lines
+        )
     }
 
     fn create_message(&self, conflict: &Conflict) -> String {

@@ -6,11 +6,13 @@ use regex::Regex;
 use std::fs;
 use std::process::Command;
 
-pub struct GitUtils;
+pub struct GitUtils {
+    context_lines: u32,
+}
 
 impl GitUtils {
-    pub fn new() -> Self {
-        GitUtils
+    pub fn new(context_lines: u32) -> Self {
+        GitUtils { context_lines }
     }
 
     /// Check that git cherry-pick default is diff3 for merge.conflictStyle
@@ -98,7 +100,6 @@ impl GitUtils {
         file_path: &str,
     ) -> Result<Conflict> {
         let conflict_lines: Vec<&str> = conflict_text.lines().collect();
-        let nr_context_lines = 3;
 
         let local_start = conflict_lines
             .iter()
@@ -131,12 +132,16 @@ impl GitUtils {
         let content_lines: Vec<&str> = content.lines().collect();
 
         let head_context_end = (start_line.saturating_sub(1)).max(0);
-        let head_context_start = (head_context_end.saturating_sub(nr_context_lines)).max(0);
+        let head_context_start =
+            (head_context_end.saturating_sub(self.context_lines as usize)).max(0);
+        let nr_head_context_lines = head_context_end - head_context_start;
         let head_context_lines: Vec<&str> =
             content_lines[head_context_start..head_context_end].to_vec();
 
         let tail_context_start = (start_line + conflict_lines.len() - 1).min(content_lines.len());
-        let tail_context_end = (tail_context_start + nr_context_lines).min(content_lines.len());
+        let tail_context_end =
+            (tail_context_start + self.context_lines as usize).min(content_lines.len());
+        let nr_tail_context_lines = tail_context_end - tail_context_start;
         let tail_context_lines: Vec<&str> =
             content_lines[tail_context_start..tail_context_end].to_vec();
 
@@ -149,6 +154,8 @@ impl GitUtils {
             tail_context: tail_context_lines.join("\n") + "\n",
             start_line,
             remote_start,
+            nr_head_context_lines,
+            nr_tail_context_lines,
         })
     }
 
@@ -328,6 +335,8 @@ pub struct Conflict {
     pub tail_context: String,
     pub start_line: usize,
     pub remote_start: usize,
+    pub nr_head_context_lines: usize,
+    pub nr_tail_context_lines: usize,
 }
 
 #[derive(Debug, Clone)]

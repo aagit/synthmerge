@@ -13,7 +13,7 @@ mod conflict_resolver;
 mod git_utils;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(version)]
 struct Args {
     /// Path to configuration file
     #[arg(
@@ -26,6 +26,10 @@ struct Args {
     /// Enable verbose output
     #[arg(short = 'v', long = "verbose")]
     verbose: bool,
+
+    /// Number of context lines to include around conflicts
+    #[arg(long = "context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(1..))]
+    context_lines: u32,
 }
 
 #[tokio::main]
@@ -41,7 +45,7 @@ async fn main() -> Result<()> {
     }
 
     // Initialize git utilities
-    let git_utils = GitUtils::new();
+    let git_utils = GitUtils::new(args.context_lines);
 
     // Try to cherry-pick with diff3 mode
     let result = git_utils.check_diff3();
