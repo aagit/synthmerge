@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
-use crate::config::EndpointConfig;
+use crate::config::{EndpointConfig, EndpointTypeConfig};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -45,7 +45,7 @@ impl ApiClient {
     /// Query the AI endpoint with the given prompt
     pub async fn query(&self, api_request: &ApiRequest) -> Result<ApiResponse> {
         let response = match &self.config.config {
-            crate::config::EndpointTypeConfig::OpenAI {
+            EndpointTypeConfig::OpenAI {
                 url, api_key_file, ..
             } => {
                 let api_key = std::fs::read_to_string(shellexpand::full(api_key_file)?.as_ref())
@@ -57,9 +57,7 @@ impl ApiClient {
                 )
                 .await
             }
-            crate::config::EndpointTypeConfig::Patchpal { url, .. } => {
-                self.query_patchpal(url, api_request).await
-            }
+            EndpointTypeConfig::Patchpal { url, .. } => self.query_patchpal(url, api_request).await,
         }?;
 
         Ok(response)
@@ -198,17 +196,17 @@ impl ApiClient {
 }
 
 // Extension trait to get config values
-impl crate::config::EndpointTypeConfig {
+impl EndpointTypeConfig {
     fn model(&self) -> &str {
         match self {
-            crate::config::EndpointTypeConfig::OpenAI { model, .. } => model,
+            EndpointTypeConfig::OpenAI { model, .. } => model,
             _ => "",
         }
     }
 
     fn reasoning_effort(&self) -> Option<&String> {
         match self {
-            crate::config::EndpointTypeConfig::OpenAI {
+            EndpointTypeConfig::OpenAI {
                 reasoning_effort, ..
             } => reasoning_effort.as_ref(),
             _ => None,
@@ -217,14 +215,14 @@ impl crate::config::EndpointTypeConfig {
 
     fn temperature(&self) -> f32 {
         match self {
-            crate::config::EndpointTypeConfig::OpenAI { temperature, .. } => *temperature,
+            EndpointTypeConfig::OpenAI { temperature, .. } => *temperature,
             _ => 0.6,
         }
     }
 
     fn no_context(&self) -> bool {
         match self {
-            crate::config::EndpointTypeConfig::OpenAI { no_context, .. } => *no_context,
+            EndpointTypeConfig::OpenAI { no_context, .. } => *no_context,
             _ => false,
         }
     }

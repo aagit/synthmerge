@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
-use crate::api_client::ApiClient;
+use crate::Args;
+use crate::api_client::{ApiClient, ApiRequest, ApiResponse};
 use crate::config::Config;
 use crate::git_utils::{Conflict, ResolvedConflict};
 use anyhow::Result;
@@ -9,15 +10,15 @@ use futures::future::select_all;
 
 pub struct ConflictResolver {
     config: Config,
-    verbose: bool,
+    args: Args,
     git_diff: Option<String>,
 }
 
 impl ConflictResolver {
-    pub fn new(config: Config, verbose: bool, git_diff: Option<String>) -> Self {
+    pub fn new(config: Config, args: Args, git_diff: Option<String>) -> Self {
         ConflictResolver {
             config,
-            verbose,
+            args,
             git_diff: Self::__git_diff(git_diff),
         }
     }
@@ -44,16 +45,16 @@ impl ConflictResolver {
             let patch = self.create_patch(conflict);
             let code = self.create_code(conflict);
             let message = self.create_message(conflict);
-            if self.verbose {
+            if self.args.verbose {
                 println!("Message:\n{}", message);
             }
 
             // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
             for (order, endpoint) in endpoints.iter().enumerate() {
-                let client = ApiClient::new(endpoint.clone(), self.verbose);
+                let client = ApiClient::new(endpoint.clone(), self.args.verbose);
                 let name = endpoint.name.clone();
-                let api_request = crate::api_client::ApiRequest {
+                let api_request = ApiRequest {
                     prompt: prompt.clone(),
                     message: message.clone(),
                     patch: patch.clone(),
@@ -237,13 +238,13 @@ Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> e
     }
 
     /// Parse the API response into 3 solutions
-    fn parse_response(&self, response: &crate::api_client::ApiResponse) -> Result<Vec<String>> {
+    fn parse_response(&self, response: &ApiResponse) -> Result<Vec<String>> {
         let start_marker = "<|patched_code_start|>\n";
         let end_marker = "<|patched_code_end|>";
         let mut results = Vec::new();
         let mut start = 0;
 
-        if self.verbose {
+        if self.args.verbose {
             println!("Response:\n{}", response.response);
         }
 
