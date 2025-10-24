@@ -225,6 +225,10 @@ Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> e
             start = end_pos + end_marker.len();
         }
 
+        if results.is_empty() {
+            return Err(anyhow::anyhow!("No code blocks found in response"));
+        }
+
         Ok(results)
     }
 }
