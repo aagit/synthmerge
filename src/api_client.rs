@@ -19,6 +19,7 @@ pub struct ApiRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse {
     pub response: String,
+    pub total_tokens: Option<u64>,
 }
 
 pub struct ApiClient {
@@ -48,7 +49,7 @@ impl ApiClient {
         message: &str,
         patch: &str,
         code: &str,
-    ) -> Result<String> {
+    ) -> Result<ApiResponse> {
         let api_request = ApiRequest {
             prompt: prompt.to_string(),
             message: message.to_string(),
@@ -84,7 +85,7 @@ impl ApiClient {
         api_url: &str,
         api_key: &str,
         request: &ApiRequest,
-    ) -> Result<String> {
+    ) -> Result<ApiResponse> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::CONTENT_TYPE,
@@ -134,10 +135,18 @@ impl ApiClient {
             .and_then(|content| content.as_str())
             .context("Failed to extract content from response")?;
 
-        Ok(content.to_string())
+        let total_tokens = json_response
+            .get("usage")
+            .and_then(|usage| usage.get("total_tokens"))
+            .and_then(|tokens| tokens.as_u64());
+
+        Ok(ApiResponse {
+            response: content.to_string(),
+            total_tokens,
+        })
     }
 
-    async fn query_patchpal(&self, url: &str, request: &ApiRequest) -> Result<String> {
+    async fn query_patchpal(&self, url: &str, request: &ApiRequest) -> Result<ApiResponse> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::CONTENT_TYPE,
@@ -183,7 +192,10 @@ impl ApiClient {
             .collect::<Result<Vec<_>, _>>()?
             .join("\n");
 
-        Ok(content.to_string())
+        Ok(ApiResponse {
+            response: content.to_string(),
+            total_tokens: None,
+        })
     }
 }
 

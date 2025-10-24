@@ -55,7 +55,7 @@ impl ConflictResolver {
                 let handle = tokio::spawn(async move {
                     let start = std::time::Instant::now();
                     let result = client.query(&prompt, &message, &patch, &code).await;
-                    let duration = start.elapsed().as_secs();
+                    let duration = start.elapsed();
                     (result, duration, name, order)
                 });
                 futures.push(handle);
@@ -67,7 +67,21 @@ impl ConflictResolver {
                 futures = remaining;
                 match result {
                     Ok((result, duration, name, order)) => {
-                        println!(" - {} completed in {} seconds", name, duration);
+                        let duration = duration.as_secs_f64();
+                        println!(
+                            " - {} completed in {:.2} s{}",
+                            name,
+                            duration,
+                            result
+                                .as_ref()
+                                .and_then(|r| Ok(r.total_tokens.map(|t| format!(
+                                    " - tokens {} - {:.2} t/s",
+                                    t.to_string(),
+                                    t as f64 / duration
+                                ))))
+                                .unwrap_or_default()
+                                .unwrap_or_default()
+                        );
                         results.push((result, order));
                     }
                     Err(e) => return Err(anyhow::anyhow!("Task failed: {}", e)),
@@ -193,19 +207,19 @@ Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> e
     }
 
     /// Parse the API response into 3 solutions
-    fn parse_response(&self, response: &str) -> Result<Vec<String>> {
+    fn parse_response(&self, response: &crate::api_client::ApiResponse) -> Result<Vec<String>> {
         let start_marker = "<|code_start|>\n";
         let end_marker = "<|code_end|>";
         let mut results = Vec::new();
         let mut start = 0;
 
         if self.verbose {
-            println!("Response:\n{}", response);
+            println!("Response:\n{}", response.response);
         }
 
-        while let Some(start_pos) = response[start..].find(start_marker) {
+        while let Some(start_pos) = response.response[start..].find(start_marker) {
             let start_pos = start + start_pos;
-            let end_pos = response[start_pos..]
+            let end_pos = response.response[start_pos..]
                 .find(end_marker)
                 .ok_or_else(|| anyhow::anyhow!("Invalid format: missing <|code_end|>"))?;
 
@@ -219,7 +233,7 @@ Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> e
             let content_start = start_pos + start_marker.len();
             let content_end = end_pos;
 
-            let content = &response[content_start..content_end];
+            let content = &response.response[content_start..content_end];
             results.push(content.to_string());
 
             start = end_pos + end_marker.len();
