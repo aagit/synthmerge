@@ -2,6 +2,7 @@
 // Copyright (C) 2025  Red Hat, Inc.
 
 use crate::config::{EndpointConfig, EndpointTypeConfig};
+use crate::conflict_resolver::ConflictResolver;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -181,8 +182,10 @@ impl ApiClient {
             })
             .map(|s| -> Result<String, anyhow::Error> {
                 Ok(format!(
-                    "{}{}{}",
-                    "<|patched_code_start|>\n", s?, "<|patched_code_end|>"
+                    "{}\n{}{}",
+                    ConflictResolver::PATCHED_CODE_START,
+                    s?,
+                    ConflictResolver::PATCHED_CODE_END
                 ))
             })
             .collect::<Result<Vec<_>, _>>()?

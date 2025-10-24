@@ -15,6 +15,14 @@ pub struct ConflictResolver {
 }
 
 impl ConflictResolver {
+    pub const DIFF_START: &str = "<|diff_start|>";
+    pub const DIFF_END: &str = "<|diff_end|>";
+    pub const PATCH_START: &str = "<|patch_start|>";
+    pub const PATCH_END: &str = "<|patch_end|>";
+    pub const CODE_START: &str = "<|code_start|>";
+    pub const CODE_END: &str = "<|code_end|>";
+    pub const PATCHED_CODE_START: &str = "<|patched_code_start|>";
+    pub const PATCHED_CODE_END: &str = "<|patched_code_end|>";
     pub fn new(config: Config, args: Args, git_diff: Option<String>) -> Self {
         ConflictResolver {
             config,
@@ -171,12 +179,16 @@ impl ConflictResolver {
     fn __git_diff(git_diff: Option<String>) -> Option<String> {
         git_diff.map(|s| {
             format!(
-                r#"The PATCH originates from the DIFF between <|diff_start|><|diff_end|>.
+                r#"The PATCH originates from the DIFF between {}{}.
 
-<|diff_start|>
 {}
-<|diff_end|>"#,
-                s
+{}
+{}"#,
+                Self::DIFF_START,
+                Self::DIFF_END,
+                Self::DIFF_START,
+                s,
+                Self::DIFF_END,
             )
         })
     }
@@ -184,14 +196,23 @@ impl ConflictResolver {
     /// Create a prompt for the AI to resolve the conflict
     fn create_prompt(&self, conflict: &Conflict) -> String {
         format!(
-            r#"Apply the PATCH between <|patch_start|><|patch_end|> to the CODE between <|code_start|><|code_end|>.
+            r#"Apply the PATCH between {}{} to the CODE between {}{}.
 
 Write the reasoning about the PATCH focusing only on the modifications done in the + or - lines of the PATCH and don't make other modifications to the CODE.
 
-FINALLY write the final PATCHED CODE between <|patched_code_start|><|patched_code_end|> instead of markdown fences.
+FINALLY write the final PATCHED CODE between {}{} instead of markdown fences.
 
-Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> exactly the same, including all empty lines."#,
-            conflict.nr_head_context_lines, conflict.nr_tail_context_lines
+Rewrite the {} lines after {} and the {} lines before {} exactly the same, including all empty lines."#,
+            Self::PATCH_START,
+            Self::PATCH_END,
+            Self::CODE_START,
+            Self::CODE_END,
+            Self::PATCHED_CODE_START,
+            Self::PATCHED_CODE_END,
+            conflict.nr_head_context_lines,
+            Self::CODE_START,
+            conflict.nr_tail_context_lines,
+            Self::CODE_END
         )
     }
 
@@ -200,12 +221,16 @@ Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> e
         let code = self.create_code(conflict);
 
         format!(
-            r#"<|patch_start|>
-{patch}<|patch_end|>
+            r#"{}
+{patch}{}
 
-<|code_start|>
-{code}<|code_end|>
-"#
+{}
+{code}{}
+"#,
+            Self::PATCH_START,
+            Self::PATCH_END,
+            Self::CODE_START,
+            Self::CODE_END,
         )
     }
 
@@ -239,8 +264,8 @@ Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> e
 
     /// Parse the API response into 3 solutions
     fn parse_response(&self, response: &ApiResponse) -> Result<Vec<String>> {
-        let start_marker = "<|patched_code_start|>\n";
-        let end_marker = "<|patched_code_end|>";
+        let start_marker = format!("{}\n", Self::PATCHED_CODE_START);
+        let end_marker = Self::PATCHED_CODE_END;
         let mut results = Vec::new();
         let mut start = 0;
 
@@ -248,16 +273,20 @@ Rewrite the {} lines after <|code_start|> and the {} lines before <|code_end|> e
             println!("Response:\n{}", response.response);
         }
 
-        while let Some(start_pos) = response.response[start..].find(start_marker) {
+        while let Some(start_pos) = response.response[start..].find(&start_marker) {
             let start_pos = start + start_pos;
             let end_pos = response.response[start_pos..]
                 .find(end_marker)
-                .ok_or_else(|| anyhow::anyhow!("Invalid format: missing <|patched_code_end|>"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Invalid format: missing {}", Self::PATCHED_CODE_END)
+                })?;
 
             let end_pos = start_pos + end_pos;
             if start_pos > end_pos {
                 return Err(anyhow::anyhow!(
-                    "Invalid format: <|patched_code_start|> appears after <|patched_code_end|>"
+                    "Invalid format: {} appears after {}",
+                    Self::PATCHED_CODE_START,
+                    Self::PATCHED_CODE_END
                 ));
             }
 
