@@ -87,11 +87,11 @@ impl ConflictResolver {
                             duration,
                             result
                                 .as_ref()
-                                .and_then(|r| Ok(r.total_tokens.map(|t| format!(
+                                .map(|r| r.total_tokens.map(|t| format!(
                                     " - tokens {} - {:.2} t/s",
-                                    t.to_string(),
+                                    t,
                                     t as f64 / duration
-                                ))))
+                                )))
                                 .unwrap_or_default()
                                 .unwrap_or_default()
                         );

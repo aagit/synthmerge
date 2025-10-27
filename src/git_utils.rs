@@ -389,7 +389,6 @@ impl GitUtils {
         let git_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         // Check for cherry-pick, merge, and rebase HEAD files
-        let git_dir = git_dir;
         let mut head_files = Vec::new();
         for &prefix in &["CHERRY_PICK", "MERGE", "REBASE"] {
             head_files.push((prefix, format!("{}/{}_{}", git_dir, prefix, "HEAD")));
