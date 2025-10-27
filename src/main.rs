@@ -29,9 +29,7 @@ struct Args {
 }
 
 fn log_init() {
-    let env = env_logger::Env::default()
-        .default_filter_or("warn")
-        .default_write_style_or("always");
+    let env = env_logger::Env::default().default_filter_or("warn");
     env_logger::Builder::from_env(env)
         .format_timestamp(None)
         .init();
