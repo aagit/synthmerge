@@ -50,6 +50,7 @@ impl ConflictResolver {
             let patch = self.create_patch(conflict);
             let code = self.create_code(conflict);
             let message = self.create_message(conflict);
+            let git_diff = self.create_git_diff(conflict);
             log::info!("Message:\n{}", message);
 
             // Try to resolve with all endpoints in parallel
@@ -63,7 +64,7 @@ impl ConflictResolver {
                     patch: patch.clone(),
                     code: code.clone(),
                     config: endpoint.clone(),
-                    git_diff: self.git_diff.clone(),
+                    git_diff: git_diff.clone(),
                 };
                 let handle = tokio::spawn(async move {
                     let start = std::time::Instant::now();
@@ -177,6 +178,15 @@ impl ConflictResolver {
                 Self::DIFF_END,
             )
         })
+    }
+
+    pub fn create_git_diff(&self, conflict: &Conflict) -> Option<String> {
+        if let Some(git_diff) = &self.git_diff
+            && git_diff.contains(&conflict.file_path)
+        {
+            return Some(git_diff.clone());
+        }
+        None
     }
 
     /// Create a prompt for the AI to resolve the conflict
