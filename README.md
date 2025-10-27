@@ -20,30 +20,35 @@
 4. **Model flexibility**  
    Removes the Patchpal fine-tuning requirement, allowing any instruct model to be used
 
-5. **Parallel model inference with deduplication**  
-   Queries an unlimited number of models in parallel and deduplicates their answers when they agree
-
 ---
 
 ## ✨ Key Features
 
-- **Zero Git feature duplication**  
-  Leverages Git's `diff3` conflict markers to identify context for patch application.
+- **Universal Git operation support**  
+  Works seamlessly after all Git operations that create conflicts:
+  - `cherry-pick`
+  - `merge`
+  - `rebase`
+  - `revert`
 
-- **Multi-AI endpoint support**  
-  Supports parallel querying of any combination of models:
-  - Patchpal-backend (fine-tuned specifically for patch resolution)
-  - Self-hosted open source LLMs with OpenAI compatible endpoints
-  - Gemini (using OpenAI-compatible API)
+- **Parallel Multi-AI endpoint support**  
+  Queries multiple AI models simultaneously to resolve conflicts:
+  - Patchpal-backend (fine-tuned specifically for conflict resolution)
+  - Self-hosted open weight open source LLMs with OpenAI compatible endpoints
+  - Gemini (via OpenAI-compatible API)
+
+- **Results deduplication**  
+  Combines identical solutions, showing which models agree on what
 
 - **Review using your workflow**  
-  Resolved conflicts appear in your editor with model attribution. All AI-generated code requires manual review before commit.
+  - Resolved conflicts appear in your editor with model attribution
+  - AI-generated code requires manual review before commit
 
 - **Fail-safe design**  
-  If one model fails to resolve a conflict, Git's original conflict remains alongside solutions from other models for that hunk.
+  If one model fails to resolve a conflict, Git's original conflict remains alongside solutions from other models for that hunk
 
 - **Configurable**  
-  Configure inference servers, enable reasoning, set temperature, and other parameters.
+  Configure inference servers: reasoning effort, temperature, no_context...
 
 ---
 
