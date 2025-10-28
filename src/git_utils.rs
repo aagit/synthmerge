@@ -8,11 +8,19 @@ use std::process::Command;
 
 pub struct GitUtils {
     context_lines: u32,
+    in_rebase: bool,
 }
 
 impl GitUtils {
+    const ASSISTED_BY_LINE: &str = concat!("Assisted-by: ", env!("CARGO_PKG_NAME"));
+    const REBASE_MESSAGE_FILE: &str = "rebase-merge/message";
+    const MERGE_MSG_FILE: &str = "MERGE_MSG";
+
     pub fn new(context_lines: u32) -> Self {
-        GitUtils { context_lines }
+        GitUtils {
+            context_lines,
+            in_rebase: false,
+        }
     }
 
     /// Check that git cherry-pick default is diff3 for merge.conflictStyle
@@ -327,14 +335,25 @@ impl GitUtils {
         }
 
         let git_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let merge_msg_path = format!("{}/.git/MERGE_MSG", git_root);
+        let merge_msg_path = if self.in_rebase {
+            format!("{}/.git/{}", git_root, Self::REBASE_MESSAGE_FILE)
+        } else {
+            format!("{}/.git/{}", git_root, Self::MERGE_MSG_FILE)
+        };
         let merge_msg_content = match fs::read_to_string(&merge_msg_path) {
             Ok(content) => content,
             Err(_) => {
-                println!("If you use the AI generated code please add \"Assisted-by: synthmerge\"");
+                println!(
+                    "If you use the AI generated code please add \"{}\"",
+                    Self::ASSISTED_BY_LINE
+                );
                 return Ok(());
             }
         };
+
+        if merge_msg_content.contains(Self::ASSISTED_BY_LINE) {
+            return Ok(());
+        }
 
         let mut lines: Vec<String> = merge_msg_content
             .split_inclusive('\n')
@@ -359,7 +378,7 @@ impl GitUtils {
         }
 
         // Insert the Assisted-by line after the last non-empty line
-        let assisted_line = "Assisted-by: synthmerge\n".to_string();
+        let assisted_line = format!("{}\n", Self::ASSISTED_BY_LINE);
         lines.insert(insert_pos + 1, assisted_line);
 
         let updated_content = lines.join("");
@@ -367,13 +386,13 @@ impl GitUtils {
             format!("Failed to write updated merge message: {}", merge_msg_path)
         })?;
 
-        println!("Added \"Assisted-by: synthmerge\" to the .git/MERGE_MSG file");
+        println!("Added \"{}\"", Self::ASSISTED_BY_LINE);
 
         Ok(())
     }
 
     /// Check if we are currently in a cherry-pick, merge, or rebase state
-    pub fn find_commit_hash(&self) -> Result<Option<String>> {
+    pub fn find_commit_hash(&mut self) -> Result<Option<String>> {
         let output = Command::new("git")
             .args(["rev-parse", "--git-dir"])
             .output()
@@ -395,6 +414,7 @@ impl GitUtils {
         }
 
         let mut content: Option<String> = None;
+        let mut latest_path: Option<(&str, String)> = None;
         let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
 
         for (name, path) in head_files {
@@ -407,9 +427,24 @@ impl GitUtils {
 
                 if file_time > latest_time {
                     latest_time = file_time;
-                    let this_content = std::fs::read_to_string(&path)
-                        .with_context(|| format!("Failed to read {}", name))?;
-                    content = Some(this_content.trim().to_string());
+                    latest_path = Some((name, path));
+                }
+            }
+        }
+
+        if let Some((name, path)) = latest_path {
+            content = Some(
+                std::fs::read_to_string(&path)
+                    .with_context(|| format!("Failed to read {}", name))?
+                    .trim()
+                    .to_string(),
+            );
+            // Check if it's a rebase
+            if name == "REBASE" {
+                // Also check if the rebase message file exists
+                let rebase_msg_path = format!("{}/{}", git_dir, Self::REBASE_MESSAGE_FILE);
+                if std::path::Path::new(&rebase_msg_path).exists() {
+                    self.in_rebase = true;
                 }
             }
         }
