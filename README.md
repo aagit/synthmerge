@@ -1,8 +1,8 @@
 # synthmerge
 
-**AI-powered conflict resolution for Git with your own workflow**
+**AI-powered conflict resolution for Git**
 
-`synthmerge` is a minimalist, no-GUI command-line tool that leverages AI to resolve conflicts from `git cherry-pick` operations. It leverages the core principles and research of the [Patchpal project](https://gitlab.com/patchpal-ai), but focusing on a pure AI inference layer that works with your existing Git workflow. Reviews of the AI generated code still happen in your favorite editor.
+`synthmerge` is a minimalistic command-line tool that leverages AI to automatically resolve conflicts arising from Git commands. Built on the research of the [Patchpal project](https://gitlab.com/patchpal-ai), it provides a pure AI inference layer that seamlessly integrates with your existing Git workflow. While the AI generates code solutions, all code reviews and approvals remain within your favorite code editor.
 
 ---
 
@@ -17,38 +17,38 @@
 3. **Developer workflow freedom**  
    Works with *any* editor (VS Code, Emacs, Vim, etc.)
 
-4. **Model flexibility**  
-   Removes the Patchpal fine-tuning requirement, allowing any instruct model to be used
-
 ---
 
 ## ✨ Key Features
 
-- **Universal Git operation support**  
-  Works seamlessly after all Git operations that create conflicts:
+- **Universal Git Operation Support**  
+  Seamlessly integrates with all Git operations that create conflicts:
   - `cherry-pick`
   - `merge`
   - `rebase`
   - `revert`
 
-- **Parallel Multi-AI endpoint support**  
-  Queries multiple AI models simultaneously to resolve conflicts:
+- **Model Flexibility**  
+  No fine-tuning required, any instruct large language model can be used
+
+- **Parallel Multi-AI Endpoint Support**  
+  Simultaneously queries multiple AI models to resolve conflicts:
   - Patchpal-backend (fine-tuned specifically for conflict resolution)
-  - Self-hosted open weight open source LLMs with OpenAI compatible endpoints
+  - Self-hosted open-weight open source LLMs with OpenAI-compatible endpoints
   - Gemini (via OpenAI-compatible API)
 
-- **Results deduplication**  
-  Combines identical solutions, showing which models agree on what
+- **Results Deduplication**  
+  Consolidates identical solutions and displays model agreement
 
-- **Review using your workflow**  
+- **Review Using Your Workflow**  
   - Resolved conflicts appear in your editor with model attribution
   - AI-generated code requires manual review before commit
 
-- **Fail-safe design**  
-  If one model fails to resolve a conflict, Git's original conflict remains alongside solutions from other models for that hunk
+- **Fail-Safe Design**  
+  When one model fails to resolve a conflict, Git's original conflict remains alongside solutions from other models for that hunk
 
 - **Configurable**  
-  Configure inference servers: reasoning effort, temperature, no_context...
+  Customize inference servers: reasoning effort, temperature, no_context ...
 
 ---
 
@@ -72,6 +72,8 @@
 4. **Git gets updated**  
    - synthmerge inserts the AI resolution into existing diff3 markers
    - You review in your editor
+
+> ✅ Works also for git rebase, revert and merge conflict resolutions.
 
 ---
 
