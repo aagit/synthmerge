@@ -87,7 +87,7 @@ impl GitUtils {
 
         let mut conflicts = Vec::new();
         let re = Regex::new(&format!(
-            r"(?s)({}HEAD.*?{}.*?{}.*?{}.*?\n)",
+            r"(?ms)(^{}HEAD.*?^{}.*?^{}.*?^{}.*?\n)",
             GitUtils::HEAD_MARKER,
             GitUtils::BASE_MARKER
                 .chars()
