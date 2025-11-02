@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
-use crate::conflict_resolver::{Conflict, ResolvedConflict};
+use crate::conflict_resolver::{Conflict, DedupResolvedConflict, ResolvedConflict};
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::fs;
@@ -237,12 +237,16 @@ impl GitUtils {
         for conflict in conflicts.iter().rev() {
             println!(
                 "Applying resolved conflict for: {}:{} - {}",
-                conflict.conflict.file_path, conflict.conflict.start_line, conflict.model
+                conflict.dedup.conflict.file_path,
+                conflict.dedup.conflict.start_line,
+                conflict.dedup.model
             );
 
             // Read the file
-            let mut content = fs::read_to_string(&conflict.conflict.file_path)
-                .with_context(|| format!("Failed to read file: {}", conflict.conflict.file_path))?;
+            let mut content =
+                fs::read_to_string(&conflict.dedup.conflict.file_path).with_context(|| {
+                    format!("Failed to read file: {}", conflict.dedup.conflict.file_path)
+                })?;
 
             // Split content into lines
             let mut lines: Vec<String> = content
@@ -252,11 +256,12 @@ impl GitUtils {
 
             // Calculate the line where we want to insert the resolved content
             //print startline and remote start
-            let insert_line = conflict.conflict.start_line + conflict.conflict.remote_start - 1;
+            let insert_line =
+                conflict.dedup.conflict.start_line + conflict.dedup.conflict.remote_start - 1;
 
             // Insert the resolved content with markers
             let marker_raw = format!("{}{}: ", Self::BASE_MARKER, env!("CARGO_PKG_NAME"));
-            let marker = format!("{}{}\n", marker_raw, conflict.model);
+            let marker = format!("{}{}\n", marker_raw, conflict.dedup.model);
             let current_line = &lines[insert_line];
             if current_line != "=======\n" && !current_line.starts_with(&marker_raw) {
                 log::error!("Invalid conflict marker found at line {}", insert_line);
@@ -264,6 +269,7 @@ impl GitUtils {
             }
             lines.insert(insert_line, marker);
             let resolved_lines: Vec<String> = conflict
+                .dedup
                 .resolved_version
                 .lines()
                 .map(|s| s.to_string())
@@ -275,8 +281,11 @@ impl GitUtils {
             content = lines.join("");
 
             // Write back to file
-            fs::write(&conflict.conflict.file_path, content).with_context(|| {
-                format!("Failed to write file: {}", conflict.conflict.file_path)
+            fs::write(&conflict.dedup.conflict.file_path, content).with_context(|| {
+                format!(
+                    "Failed to write file: {}",
+                    conflict.dedup.conflict.file_path
+                )
             })?;
         }
 
@@ -293,8 +302,8 @@ impl GitUtils {
         // Group conflicts by resolved_version and start_line
         for conflict in conflicts {
             map.entry((
-                conflict.resolved_version.clone(),
-                conflict.conflict.start_line,
+                conflict.dedup.resolved_version.clone(),
+                conflict.dedup.conflict.start_line,
             ))
             .or_default()
             .push(conflict);
@@ -305,16 +314,20 @@ impl GitUtils {
         for ((resolved_version, _), group) in map {
             let model = group
                 .iter()
-                .map(|c| c.model.as_str())
+                .map(|c| c.dedup.model.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
 
             // Use the first conflict in the group as the base
             let base_conflict = group[0];
             result.push(ResolvedConflict {
-                conflict: base_conflict.conflict.clone(),
-                resolved_version,
-                model,
+                dedup: DedupResolvedConflict {
+                    conflict: base_conflict.dedup.conflict.clone(),
+                    resolved_version,
+                    model,
+                },
+                duration: base_conflict.duration,
+                total_tokens: base_conflict.total_tokens,
             });
         }
 
@@ -323,11 +336,14 @@ impl GitUtils {
         let mut seen = std::collections::HashSet::new();
 
         for original in conflicts {
-            let key = (&original.resolved_version, original.conflict.start_line);
+            let key = (
+                &original.dedup.resolved_version,
+                original.dedup.conflict.start_line,
+            );
             if seen.insert(key)
                 && let Some(pos) = result
                     .iter()
-                    .position(|r| (&r.resolved_version, r.conflict.start_line) == key)
+                    .position(|r| (&r.dedup.resolved_version, r.dedup.conflict.start_line) == key)
             {
                 ordered_result.push(result[pos].clone());
             }

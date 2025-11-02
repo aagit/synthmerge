@@ -21,27 +21,34 @@ pub struct Conflict {
 }
 
 #[derive(Debug, Clone)]
-pub struct ResolvedConflict {
+pub struct DedupResolvedConflict {
     pub conflict: Conflict,
     pub resolved_version: String,
     pub model: String,
 }
 
-pub struct ConflictResolver {
-    config: Config,
+#[derive(Debug, Clone)]
+pub struct ResolvedConflict {
+    pub dedup: DedupResolvedConflict,
+    pub duration: f64,
+    pub total_tokens: Option<u64>,
+}
+
+pub struct ConflictResolver<'a> {
+    config: &'a Config,
     git_diff: Option<String>,
 }
 
-impl ConflictResolver {
-    pub const DIFF_START: &str = "<|diff_start|>";
-    pub const DIFF_END: &str = "<|diff_end|>";
-    pub const PATCH_START: &str = "<|patch_start|>";
-    pub const PATCH_END: &str = "<|patch_end|>";
-    pub const CODE_START: &str = "<|code_start|>";
-    pub const CODE_END: &str = "<|code_end|>";
-    pub const PATCHED_CODE_START: &str = "<|patched_code_start|>";
-    pub const PATCHED_CODE_END: &str = "<|patched_code_end|>";
-    pub fn new(config: Config, git_diff: Option<String>) -> Self {
+impl<'a> ConflictResolver<'a> {
+    pub const DIFF_START: &'static str = "<|diff_start|>";
+    pub const DIFF_END: &'static str = "<|diff_end|>";
+    pub const PATCH_START: &'static str = "<|patch_start|>";
+    pub const PATCH_END: &'static str = "<|patch_end|>";
+    pub const CODE_START: &'static str = "<|code_start|>";
+    pub const CODE_END: &'static str = "<|code_end|>";
+    pub const PATCHED_CODE_START: &'static str = "<|patched_code_start|>";
+    pub const PATCHED_CODE_END: &'static str = "<|patched_code_end|>";
+    pub fn new(config: &'a Config, git_diff: Option<String>) -> Self {
         ConflictResolver {
             config,
             git_diff: Self::__git_diff(git_diff),
@@ -116,18 +123,18 @@ impl ConflictResolver {
                                 .unwrap_or_default()
                                 .unwrap_or_default()
                         );
-                        results.push((result, order));
+                        results.push((result, duration, order))
                     }
                     Err(e) => return Err(anyhow::anyhow!("Task failed: {}", e)),
                 }
             }
 
-            results.sort_by_key(|k| k.1);
-            let results: Vec<_> = results.into_iter().map(|r| r.0).collect();
+            results.sort_by_key(|k| k.2);
 
             // Validate that the content starts with head_context and ends with tail_context
             for (i, result) in results.iter().enumerate() {
-                let result = match result {
+                let duration = result.1;
+                let result = match &result.0 {
                     Ok(r) => r,
                     Err(e) => {
                         log::warn!("Skipping {} due to error: {}", endpoints[i].name, e);
@@ -135,6 +142,7 @@ impl ConflictResolver {
                     }
                 };
 
+                let total_tokens = result.total_tokens;
                 let resolved = self.parse_response(result);
                 let resolved = match resolved {
                     Ok(r) => r,
@@ -171,9 +179,13 @@ impl ConflictResolver {
                     }
 
                     resolved_conflicts.push(ResolvedConflict {
-                        conflict: conflict.clone(),
-                        resolved_version: resolved_content,
-                        model,
+                        dedup: DedupResolvedConflict {
+                            conflict: conflict.clone(),
+                            resolved_version: resolved_content,
+                            model,
+                        },
+                        duration,
+                        total_tokens,
                     });
                 }
             }
