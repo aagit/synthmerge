@@ -104,7 +104,7 @@ impl ApiClient {
                 serde_json::Value::Number(temperature.expect("Temperature value is required"));
             payload["temperature"] = temperature;
         }
-        log::debug!("Request raw: {}", payload);
+        log::debug!("Request raw:\n{}", payload);
 
         let response = self
             .client
@@ -151,6 +151,7 @@ impl ApiClient {
 					 "method": "inference",
 					 "params" : {"patch" : request.patch,
 						     "code" : request.code}});
+        log::debug!("Request raw:\n{}", payload);
         let response = self
             .client
             .post(request.endpoint.url.clone())
