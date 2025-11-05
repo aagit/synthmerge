@@ -482,8 +482,19 @@ impl GitUtils {
             }
         }
 
+        let mut i = insert_pos + 1;
+        let mut prefix_newline = "\n";
+        let regex = regex::Regex::new(r"^[A-Z][^\s]*-by:\s.*\n$").unwrap();
+        while i > 0 {
+            i -= 1;
+            if regex.is_match(&lines[i]) {
+                prefix_newline = "";
+                break;
+            }
+        }
+
         // Insert the Assisted-by line after the last non-empty line
-        let assisted_line = format!("{}\n", Self::ASSISTED_BY_LINE);
+        let assisted_line = format!("{}{}\n", prefix_newline, Self::ASSISTED_BY_LINE);
         lines.insert(insert_pos + 1, assisted_line);
 
         let updated_content = lines.join("");
