@@ -551,6 +551,7 @@ impl Bench {
             remote_start: 1,
             nr_head_context_lines,
             nr_tail_context_lines,
+            marker_size: 0,
         })
     }
 }

@@ -19,6 +19,7 @@ pub struct Conflict {
     pub remote_start: usize,
     pub nr_head_context_lines: usize,
     pub nr_tail_context_lines: usize,
+    pub marker_size: usize,
 }
 
 #[derive(Debug, Clone)]

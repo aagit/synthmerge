@@ -19,10 +19,7 @@ impl GitUtils {
     const REBASE_MESSAGE_FILE: &str = "rebase-merge/message";
     const MERGE_MSG_FILE: &str = "MERGE_MSG";
 
-    const HEAD_MARKER: &str = "<<<<<<< ";
-    const BASE_MARKER: &str = "||||||| ";
-    const CONFLICT_MARKER: &str = "=======";
-    const END_MARKER: &str = ">>>>>>>";
+    const DEFAULT_MARKER_SIZE: usize = 7;
 
     pub fn new(context_lines: u32) -> Self {
         let git_root = Self::get_git_root_uncached().unwrap_or_default();
@@ -92,17 +89,19 @@ impl GitUtils {
         let content = fs::read_to_string(file_path)
             .with_context(|| format!("Failed to read file: {}", file_path))?;
 
+        // Get the marker size for this file from gitattributes
+        let marker_size = self.get_marker_size_for_file(file_path)?;
+
         let mut conflicts = Vec::new();
         let re = Regex::new(&format!(
-            r"(?ms)(^{}HEAD.*?^{}.*?^{}.*?^{}.*?\n)",
-            GitUtils::HEAD_MARKER,
-            GitUtils::BASE_MARKER
+            r"(?ms)(^{} HEAD.*?^{} .*?^{}\n.*?^{}.*?\n)",
+            Self::create_head_marker(marker_size),
+            Self::create_base_marker(marker_size)
                 .chars()
                 .map(|c| format!(r"\{}", c))
-                .collect::<Vec<_>>()
-                .join(""),
-            GitUtils::CONFLICT_MARKER,
-            GitUtils::END_MARKER,
+                .collect::<String>(),
+            Self::create_conflict_marker(marker_size),
+            Self::create_end_marker(marker_size),
         ))
         .unwrap();
 
@@ -113,8 +112,13 @@ impl GitUtils {
                 .filter(|&c| c == '\n')
                 .count()
                 + 1;
-            let conflict =
-                self.parse_conflict_text(conflict_text, &content, start_line, file_path)?;
+            let conflict = self.parse_conflict_text(
+                conflict_text,
+                &content,
+                start_line,
+                file_path,
+                marker_size,
+            )?;
             conflicts.push(conflict);
         }
 
@@ -128,27 +132,30 @@ impl GitUtils {
         content: &str,
         start_line: usize,
         file_path: &str,
+        marker_size: usize,
     ) -> Result<Conflict> {
         let conflict_lines: Vec<&str> = conflict_text.split_inclusive('\n').collect();
 
         let local_start = conflict_lines
             .iter()
-            .position(|&line| line == format!("{}HEAD\n", GitUtils::HEAD_MARKER))
+            .position(|&line| line == format!("{} HEAD\n", Self::create_head_marker(marker_size)))
             .context("Failed to find HEAD marker")?;
 
         let base_start = conflict_lines
             .iter()
-            .position(|&line| line.starts_with(GitUtils::BASE_MARKER))
+            .position(|&line| {
+                line.starts_with(&format!("{} ", Self::create_base_marker(marker_size)))
+            })
             .context("Failed to find base marker")?;
 
         let remote_start = conflict_lines
             .iter()
-            .position(|&line| line == format!("{}\n", GitUtils::CONFLICT_MARKER))
+            .position(|&line| line == format!("{}\n", Self::create_conflict_marker(marker_size)))
             .context("Failed to find conflict marker")?;
 
         let remote_end = conflict_lines
             .iter()
-            .position(|&line| line.starts_with(GitUtils::END_MARKER))
+            .position(|&line| line.starts_with(&Self::create_end_marker(marker_size)))
             .context("Failed to find conflict end marker")?;
 
         if remote_end <= remote_start || remote_start <= base_start || base_start <= local_start {
@@ -166,8 +173,10 @@ impl GitUtils {
             (head_context_end.saturating_sub(self.context_lines as usize)).max(0);
         let nr_head_context_lines = head_context_end - head_context_start;
         let head_content_lines = content_lines[..start_line].to_vec();
-        let head_content_lines =
-            Self::remove_conflict_markers(head_content_lines[..head_context_end].to_vec())?;
+        let head_content_lines = Self::remove_conflict_markers(
+            head_content_lines[..head_context_end].to_vec(),
+            marker_size,
+        )?;
         let head_context_lines = head_content_lines[head_content_lines
             .len()
             .saturating_sub(self.context_lines as usize)
@@ -179,7 +188,7 @@ impl GitUtils {
             (tail_context_start + self.context_lines as usize).min(content_lines.len());
         let nr_tail_context_lines = tail_context_end - tail_context_start;
         let tail_content_lines = content_lines[start_line + conflict_lines.len() - 1..].to_vec();
-        let tail_content_lines = Self::remove_conflict_markers(tail_content_lines)?;
+        let tail_content_lines = Self::remove_conflict_markers(tail_content_lines, marker_size)?;
         let tail_context_lines = tail_content_lines
             [..tail_content_lines.len().min(self.context_lines as usize)]
             .to_vec();
@@ -195,26 +204,84 @@ impl GitUtils {
             remote_start,
             nr_head_context_lines,
             nr_tail_context_lines,
+            marker_size,
         })
     }
 
+    /// Get the marker size for a specific file from gitattributes
+    fn get_marker_size_for_file(&self, file_path: &str) -> Result<usize> {
+        // Check if we can find the marker size in gitattributes for this file
+        let output = Command::new("git")
+            .args([
+                "-C",
+                &self.git_root,
+                "check-attr",
+                "conflict-marker-size",
+                "--",
+                file_path,
+            ])
+            .output()
+            .with_context(|| format!("Failed to execute git check-attr for file: {}", file_path))?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if let Some(size_str) = line
+                    .strip_prefix(format!("{}:", file_path).as_str())
+                    .and_then(|s| s.trim().strip_prefix("conflict-marker-size: "))
+                    && let Ok(size) = size_str.parse::<usize>()
+                {
+                    return Ok(size);
+                }
+            }
+        }
+
+        // Default to 7 if not found
+        Ok(Self::DEFAULT_MARKER_SIZE)
+    }
+
+    /// Create a marker with specified size
+    fn create_marker(marker_char: char, size: usize) -> String {
+        marker_char.to_string().repeat(size)
+    }
+
+    /// Create a head marker with specified size
+    fn create_head_marker(size: usize) -> String {
+        Self::create_marker('<', size)
+    }
+
+    /// Create a base marker with specified size
+    fn create_base_marker(size: usize) -> String {
+        Self::create_marker('|', size)
+    }
+
+    /// Create a conflict marker with specified size
+    fn create_conflict_marker(size: usize) -> String {
+        Self::create_marker('=', size)
+    }
+
+    /// Create an end marker with specified size
+    fn create_end_marker(size: usize) -> String {
+        Self::create_marker('>', size)
+    }
+
     /// Remove conflict markers from content
-    fn remove_conflict_markers(content_lines: Vec<&str>) -> Result<Vec<&str>> {
+    fn remove_conflict_markers(content_lines: Vec<&str>, marker_size: usize) -> Result<Vec<&str>> {
         let mut skip_lines = false;
         let mut in_head = false;
         let result: Vec<&str> = content_lines
             .into_iter()
             .filter(|line| {
-                if line.starts_with(GitUtils::HEAD_MARKER) {
+                if line.starts_with(&Self::create_head_marker(marker_size)) {
                     in_head = true;
                     skip_lines = true;
                     return false;
                 }
-                if line.starts_with(GitUtils::BASE_MARKER) {
+                if line.starts_with(&Self::create_base_marker(marker_size)) {
                     in_head = false;
                     return false;
                 }
-                if line.starts_with(GitUtils::END_MARKER) {
+                if line.starts_with(&Self::create_end_marker(marker_size)) {
                     skip_lines = false;
                     in_head = false;
                     return false;
@@ -223,14 +290,12 @@ impl GitUtils {
             })
             .collect();
 
-        // Check for erratic conflict markers
-        let has_erratic_markers = result.iter().any(|line| {
-            line.starts_with(GitUtils::BASE_MARKER)
-                || line == &format!("{}\n", GitUtils::CONFLICT_MARKER)
-        });
+        // Check for nested conflict markers
+        let re = Regex::new(&format!(r"^(<|>|=|\|){{{},}}", Self::DEFAULT_MARKER_SIZE,)).unwrap();
+        let has_nested_markers = result.iter().any(|line| re.is_match(line));
 
-        if has_erratic_markers {
-            Err(anyhow::anyhow!("Erratic conflict markers found in file"))
+        if has_nested_markers {
+            Err(anyhow::anyhow!("Nested conflict markers found in file"))
         } else {
             Ok(result)
         }
@@ -260,11 +325,20 @@ impl GitUtils {
             //print startline and remote start
             let insert_line = conflict.conflict.start_line + conflict.conflict.remote_start - 1;
 
+            // Get the marker size for this file from gitattributes
+            let marker_size = conflict.conflict.marker_size;
+
             // Insert the resolved content with markers
-            let marker_raw = format!("{}{}: ", Self::BASE_MARKER, env!("CARGO_PKG_NAME"));
+            let marker_raw = format!(
+                "{} {}: ",
+                Self::create_base_marker(marker_size),
+                env!("CARGO_PKG_NAME")
+            );
             let marker = format!("{}{}\n", marker_raw, conflict.model);
             let current_line = &lines[insert_line];
-            if current_line != "=======\n" && !current_line.starts_with(&marker_raw) {
+            if *current_line != format!("{}\n", Self::create_conflict_marker(marker_size))
+                && !current_line.starts_with(&marker_raw)
+            {
                 log::error!("Invalid conflict marker found at line {}", insert_line);
                 continue;
             }
