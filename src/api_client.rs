@@ -91,15 +91,7 @@ impl ApiClient {
         // Handle OpenAIParams - if None, create a single entry with no parameters
         let params_list = match params {
             Some(params) => params,
-            None => &vec![OpenAIParams {
-                variant: Box::new(None),
-                no_context: None,
-                reasoning_effort: Box::new(None),
-                temperature: None,
-                top_k: None,
-                top_p: None,
-                min_p: None,
-            }],
+            None => &vec![OpenAIParams::default()],
         };
 
         let mut responses = Vec::new();

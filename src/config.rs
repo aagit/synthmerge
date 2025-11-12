@@ -59,7 +59,7 @@ pub enum EndpointTypeConfig {
     Patchpal {},
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct OpenAIParams {
     #[serde(default)]
     pub variant: Box<Option<String>>,
