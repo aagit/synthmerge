@@ -260,7 +260,7 @@ impl ApiClient {
         let mut delay = Duration::from_millis(self.endpoint.delay);
         let max_delay = Duration::from_millis(self.endpoint.max_delay);
 
-        log::debug!("Request raw ({}):\n{}", self.endpoint.name, payload);
+        log::trace!("Request raw ({}):\n{}", self.endpoint.name, payload);
 
         for _ in 0..self.endpoint.retries {
             let response = self
@@ -281,7 +281,7 @@ impl ApiClient {
                             continue;
                         }
                     };
-                    log::debug!("Response raw ({}):\n{}", self.endpoint.name, response_text);
+                    log::trace!("Response raw ({}):\n{}", self.endpoint.name, response_text);
 
                     match response_handler(&response_text) {
                         Ok(api_response) => return Ok(api_response),
