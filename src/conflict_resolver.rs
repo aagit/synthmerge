@@ -280,16 +280,13 @@ impl<'a> ConflictResolver<'a> {
     fn __git_diff(git_diff: Option<String>) -> Option<String> {
         git_diff.map(|s| {
             format!(
-                r#"The PATCH originates from the DIFF between {}{}.
+                r#"The PATCH originates from the DIFF between {diff_start}{diff_end}.
 
-{}
-{}
-{}"#,
-                Self::DIFF_START,
-                Self::DIFF_END,
-                Self::DIFF_START,
-                s,
-                Self::DIFF_END,
+{diff_start}
+{s}
+{diff_end}"#,
+                diff_start = Self::DIFF_START,
+                diff_end = Self::DIFF_END,
             )
         })
     }
@@ -306,39 +303,36 @@ impl<'a> ConflictResolver<'a> {
     /// Create a prompt for the AI to resolve the conflict
     fn create_prompt(&self, conflict: &Conflict) -> String {
         format!(
-            r#"Apply the PATCH between {}{} to the CODE between {}{}.
+            r#"Apply the PATCH between {patch_start}{patch_end} to the CODE between {code_start}{code_end}.
 
-FINALLY write the final PATCHED CODE between {}{} instead of markdown fences.
+FINALLY write the final PATCHED CODE between {patched_code_start}{patched_code_end} instead of markdown fences.
 
-Rewrite the {} lines after {} and the {} lines before {} exactly the same, including all empty lines."#,
-            Self::PATCH_START,
-            Self::PATCH_END,
-            Self::CODE_START,
-            Self::CODE_END,
-            Self::PATCHED_CODE_START,
-            Self::PATCHED_CODE_END,
-            conflict.nr_head_context_lines,
-            Self::CODE_START,
-            conflict.nr_tail_context_lines,
-            Self::CODE_END
+Rewrite the {nr_head_context_lines} lines after {code_start} and the {nr_tail_context_lines} lines before {code_end} exactly the same, including all empty lines."#,
+            patch_start = Self::PATCH_START,
+            patch_end = Self::PATCH_END,
+            code_start = Self::CODE_START,
+            code_end = Self::CODE_END,
+            patched_code_start = Self::PATCHED_CODE_START,
+            patched_code_end = Self::PATCHED_CODE_END,
+            nr_head_context_lines = conflict.nr_head_context_lines,
+            nr_tail_context_lines = conflict.nr_tail_context_lines
         )
     }
 
     fn create_message(&self, conflict: &Conflict) -> String {
-        let patch = self.create_patch(conflict);
-        let code = self.create_code(conflict);
-
         format!(
-            r#"{}
-{patch}{}
+            r#"{patch_start}
+{patch}{patch_end}
 
-{}
-{code}{}
+{code_start}
+{code}{code_end}
 "#,
-            Self::PATCH_START,
-            Self::PATCH_END,
-            Self::CODE_START,
-            Self::CODE_END,
+            patch_start = Self::PATCH_START,
+            patch = self.create_patch(conflict),
+            patch_end = Self::PATCH_END,
+            code_start = Self::CODE_START,
+            code = self.create_code(conflict),
+            code_end = Self::CODE_END,
         )
     }
 
