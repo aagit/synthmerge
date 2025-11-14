@@ -64,7 +64,7 @@ pub struct OpenAIParams {
     #[serde(default)]
     pub variant: Box<Option<String>>,
     #[serde(default)]
-    pub no_context: Option<bool>,
+    pub no_context: bool,
     #[serde(default)]
     pub reasoning_effort: Box<Option<String>>,
     #[serde(default)]

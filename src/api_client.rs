@@ -98,7 +98,7 @@ impl ApiClient {
 
         for params in params_list {
             let prompt = if let Some(git_diff) = &request.git_diff
-                && !params.no_context.unwrap_or(false)
+                && !params.no_context
             {
                 format!("{}\n\n{}", request.prompt, git_diff)
             } else {
