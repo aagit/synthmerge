@@ -4,10 +4,9 @@
 use crate::config::{EndpointConfig, EndpointTypeConfig, OpenAIParams};
 use crate::conflict_resolver::ConflictResolver;
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ApiRequest {
     pub prompt: String,
     pub message: String,

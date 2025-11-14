@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct TestEntry {
     patch: String,
     code: String,
@@ -35,7 +35,7 @@ struct TestResult {
     code_commit_hash: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 struct ModelStats {
     total: usize,
     correct: usize,
@@ -50,7 +50,7 @@ struct ModelStats {
     avg_duration: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Bench {
     results: Vec<TestResult>,
     model_stats: HashMap<String, ModelStats>,
@@ -561,25 +561,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_test_entry_serialization() {
-        let entry = TestEntry {
-            patch: "patch content".to_string(),
-            code: "code content".to_string(),
+    fn test_test_result_serialization() {
+        let result = TestResult {
+            entry_index: 0,
+            model: "test_model".to_string(),
+            correct: true,
+            correct_aligned: true,
+            correct_stripped: true,
+            duration: 0.0,
+            tokens: None,
+            failed_patched_code: None,
+            error: false,
             patch_commit_hash: "abc123".to_string(),
             code_commit_hash: "def456".to_string(),
-            patched_code: "patched code content".to_string(),
-            filename: "test_file.txt".to_string(),
         };
 
-        let serialized = serde_json::to_string(&entry).unwrap();
-        let deserialized: TestEntry = serde_json::from_str(&serialized).unwrap();
+        let serialized = serde_json::to_string(&result).unwrap();
+        let deserialized: TestResult = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(entry.patch, deserialized.patch);
-        assert_eq!(entry.code, deserialized.code);
-        assert_eq!(entry.patch_commit_hash, deserialized.patch_commit_hash);
-        assert_eq!(entry.code_commit_hash, deserialized.code_commit_hash);
-        assert_eq!(entry.patched_code, deserialized.patched_code);
-        assert_eq!(entry.filename, deserialized.filename);
+        assert_eq!(result.entry_index, deserialized.entry_index);
+        assert_eq!(result.model, deserialized.model);
+        assert_eq!(result.correct, deserialized.correct);
+        assert_eq!(result.correct_aligned, deserialized.correct_aligned);
+        assert_eq!(result.correct_stripped, deserialized.correct_stripped);
+        assert_eq!(result.duration, deserialized.duration);
+        assert_eq!(result.tokens, deserialized.tokens);
+        assert_eq!(result.failed_patched_code, deserialized.failed_patched_code);
+        assert_eq!(result.error, deserialized.error);
+        assert_eq!(result.patch_commit_hash, deserialized.patch_commit_hash);
+        assert_eq!(result.code_commit_hash, deserialized.code_commit_hash);
     }
 }
 
