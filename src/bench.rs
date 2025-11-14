@@ -516,28 +516,34 @@ impl Bench {
         let mut nr_head_context_lines = 0;
         let mut found_first_change = false;
         let mut line_count = 0;
+        let line_number_re = regex::Regex::new(r"^@@ -\d+,\d+ \+\d+,\d+ @@").unwrap();
         for line in entry.patch.split_inclusive('\n') {
+            if line_number_re.is_match(line) {
+                continue;
+            }
             if let Some(line) = line.strip_prefix('+') {
                 remote_lines.push(line.to_string());
                 if !found_first_change {
-                    nr_head_context_lines = line_count - 1;
+                    nr_head_context_lines = line_count;
                     found_first_change = true;
                 }
                 line_count = 0;
+                continue;
             } else if let Some(line) = line.strip_prefix('-') {
                 base_lines.push(line.to_string());
                 if !found_first_change {
-                    nr_head_context_lines = line_count - 1;
+                    nr_head_context_lines = line_count;
                     found_first_change = true;
                 }
                 line_count = 0;
-            } else {
-                base_lines.push(line.to_string());
-                remote_lines.push(line.to_string());
+                continue;
             }
+
+            base_lines.push(line.to_string());
+            remote_lines.push(line.to_string());
             line_count += 1;
         }
-        let nr_tail_context_lines = line_count - 1;
+        let nr_tail_context_lines = line_count;
         let base = base_lines.join("");
         let remote = remote_lines.join("");
         Ok(Conflict {
