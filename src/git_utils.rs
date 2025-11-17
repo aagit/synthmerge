@@ -115,8 +115,9 @@ impl GitUtils {
         .unwrap();
 
         for cap in re.captures_iter(&content) {
-            let conflict_text = cap.get(0).unwrap().as_str();
-            let start_line = content[..cap.get(0).unwrap().start()]
+            let this_cap = cap.get(0).unwrap();
+            let conflict_text = this_cap.as_str();
+            let start_line = content[..this_cap.start()]
                 .chars()
                 .filter(|&c| c == '\n')
                 .count()
