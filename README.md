@@ -150,8 +150,8 @@ synthmerge
 git diff --name-only --diff-filter=U
 
 # ... or linearized in a single buffer to edit with ripgrep-edit
-ripgrep-edit -E vim -U -e '(?s)^<<<<<<<+ .*?^>>>>>>>+ '
-ripgrep-edit -E emacsclient -U -e '(?s)^<<<<<<<+ .*?^>>>>>>>+ '
+rg-edit -E vim -U -e '(?s)^<<<<<<<+ .*?^>>>>>>>+ '
+rg-edit -E emacsclient -U -e '(?s)^<<<<<<<+ .*?^>>>>>>>+ '
 ```
 
 ---
