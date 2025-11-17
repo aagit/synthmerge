@@ -332,7 +332,14 @@ impl Bench {
                             return Some(diff);
                         }
                     }
-                    None
+                    if true {
+                        panic!(
+                            "Git diff for commit {} not found in any of the provided directories",
+                            commit_hash
+                        );
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
