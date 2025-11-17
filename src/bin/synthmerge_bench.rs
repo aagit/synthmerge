@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 use synthmerge::bench::Bench;
 use synthmerge::config::Config;
+use synthmerge::git_utils::ContextLines;
 use synthmerge::logger::log_init;
 
 #[derive(Parser, Debug)]
@@ -34,9 +35,17 @@ struct Args {
     #[arg(long = "git-dirs", value_delimiter = ',')]
     git_directories: Option<Vec<String>>,
 
-    /// Number of context lines to include around conflicts
-    #[arg(long = "context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
-    context_lines: u32,
+    /// Number of context lines to include around conflict markers
+    #[arg(long = "code-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
+    code_context_lines: u32,
+
+    /// Number of context lines of the git_diff provided as context
+    #[arg(long = "diff-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
+    diff_context_lines: u32,
+
+    /// Number of context lines of the patch
+    #[arg(long = "patch-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
+    patch_context_lines: u32,
 }
 
 #[tokio::main]
@@ -65,7 +74,11 @@ async fn main() -> Result<()> {
         args.checkpoint_interval,
         args.checkpoint_path.as_deref(),
         args.git_directories,
-        args.context_lines,
+        ContextLines {
+            code_context_lines: args.code_context_lines,
+            diff_context_lines: args.diff_context_lines,
+            patch_context_lines: args.patch_context_lines,
+        },
     )
     .await?;
 

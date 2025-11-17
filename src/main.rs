@@ -3,7 +3,7 @@
 
 use crate::config::Config;
 use crate::conflict_resolver::ConflictResolver;
-use crate::git_utils::GitUtils;
+use crate::git_utils::{ContextLines, GitUtils};
 use anyhow::Result;
 use clap::Parser;
 
@@ -24,9 +24,17 @@ struct Args {
     )]
     config_path: String,
 
-    /// Number of context lines to include around conflicts
-    #[arg(long = "context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
-    context_lines: u32,
+    /// Number of context lines to include around conflict markers
+    #[arg(long = "code-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
+    code_context_lines: u32,
+
+    /// Number of context lines of the git_diff provided as context
+    #[arg(long = "diff-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
+    diff_context_lines: u32,
+
+    /// Number of context lines of the patch
+    #[arg(long = "patch-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
+    patch_context_lines: u32,
 }
 
 #[tokio::main]
@@ -41,7 +49,11 @@ async fn main() -> Result<()> {
     log::info!("Using config file: {}", args.config_path);
 
     // Initialize git utilities
-    let mut git_utils = GitUtils::new(args.context_lines);
+    let mut git_utils = GitUtils::new(ContextLines {
+        code_context_lines: args.code_context_lines,
+        diff_context_lines: args.diff_context_lines,
+        patch_context_lines: args.patch_context_lines,
+    });
 
     // Try to cherry-pick with diff3 mode
     let result = git_utils.check_diff3();
@@ -69,7 +81,15 @@ async fn main() -> Result<()> {
     println!("Found {} conflicts to resolve", conflicts.len());
 
     // Resolve conflicts using AI
-    let resolver = ConflictResolver::new(&config, git_diff);
+    let resolver = ConflictResolver::new(
+        ContextLines {
+            code_context_lines: args.code_context_lines,
+            diff_context_lines: args.diff_context_lines,
+            patch_context_lines: args.patch_context_lines,
+        },
+        &config,
+        git_diff,
+    );
     let resolved_conflicts = resolver.resolve_conflicts(&conflicts).await?.0;
 
     git_utils.apply_resolved_conflicts(&resolved_conflicts)?;

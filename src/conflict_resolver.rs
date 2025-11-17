@@ -3,6 +3,7 @@
 
 use crate::api_client::{ApiClient, ApiRequest, ApiResponse};
 use crate::config::{Config, EndpointConfig, EndpointTypeConfig};
+use crate::git_utils::ContextLines;
 use anyhow::Result;
 use futures::future::select_all;
 use std::collections::HashMap;
@@ -36,6 +37,7 @@ pub struct ResolverErrors {
 }
 
 pub struct ConflictResolver<'a> {
+    context_lines: ContextLines,
     config: &'a Config,
     git_diff: Option<String>,
 }
@@ -49,8 +51,9 @@ impl<'a> ConflictResolver<'a> {
     const CODE_END: &'static str = "<|code_end|>";
     pub const PATCHED_CODE_START: &'static str = "<|patched_code_start|>";
     pub const PATCHED_CODE_END: &'static str = "<|patched_code_end|>";
-    pub fn new(config: &'a Config, git_diff: Option<String>) -> Self {
+    pub fn new(context_lines: ContextLines, config: &'a Config, git_diff: Option<String>) -> Self {
         ConflictResolver {
+            context_lines,
             config,
             git_diff: Self::__git_diff(git_diff),
         }
@@ -350,11 +353,7 @@ Rewrite the {nr_head_context_lines} lines after {code_start} and the {nr_tail_co
         let mut diff = Diff::compute(Algorithm::Histogram, &input);
         diff.postprocess_lines(&input);
         let mut config = UnifiedDiffConfig::default();
-        config.context_len(
-            conflict
-                .nr_head_context_lines
-                .max(conflict.nr_tail_context_lines) as u32,
-        );
+        config.context_len(self.context_lines.patch_context_lines);
         diff.unified_diff(&BasicLineDiffPrinter(&input.interner), config, &input)
             .to_string()
     }

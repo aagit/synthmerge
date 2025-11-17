@@ -3,7 +3,7 @@
 
 use crate::config::{Config, EndpointTypeConfig};
 use crate::conflict_resolver::{Conflict, ConflictResolver};
-use crate::git_utils::GitUtils;
+use crate::git_utils::{ContextLines, GitUtils};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -282,12 +282,12 @@ impl Bench {
         checkpoint_interval: usize,
         checkpoint_path: Option<&str>,
         git_directories: Option<Vec<String>>,
-        context_lines: u32,
+        context_lines: ContextLines,
     ) -> Result<()> {
         println!("Running statistics test on {} entries", entries.len());
 
         // Create a new GitUtils instance to find the commit hash
-        let git_utils = GitUtils::new(context_lines);
+        let git_utils = GitUtils::new(context_lines.clone());
 
         // Load existing checkpoint
         if let Some(path) = checkpoint_path {
@@ -345,7 +345,7 @@ impl Bench {
                 }
             });
 
-            let resolver = ConflictResolver::new(config, git_diff);
+            let resolver = ConflictResolver::new(context_lines.clone(), config, git_diff);
 
             let resolved_conflicts = resolver.resolve_conflicts(&[conflict]).await;
             match resolved_conflicts {

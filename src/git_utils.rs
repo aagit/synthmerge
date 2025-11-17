@@ -8,8 +8,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[derive(Debug, Clone)]
+pub struct ContextLines {
+    pub code_context_lines: u32,
+    pub diff_context_lines: u32,
+    pub patch_context_lines: u32,
+}
+
 pub struct GitUtils {
-    context_lines: u32,
+    context_lines: ContextLines,
     in_rebase: bool,
     git_root: String,
     git_dir: String,
@@ -22,7 +29,7 @@ impl GitUtils {
 
     const DEFAULT_MARKER_SIZE: usize = 7;
 
-    pub fn new(context_lines: u32) -> Self {
+    pub fn new(context_lines: ContextLines) -> Self {
         let git_root = Self::get_git_root_uncached().unwrap_or_default();
         let git_dir = Self::get_git_dir_uncached().unwrap_or_default();
         GitUtils {
@@ -183,8 +190,9 @@ impl GitUtils {
         let content_lines: Vec<&str> = content.split_inclusive('\n').collect();
 
         let head_context_end = (start_line.saturating_sub(1)).max(0);
-        let head_context_start =
-            (head_context_end.saturating_sub(self.context_lines as usize)).max(0);
+        let head_context_start = (head_context_end
+            .saturating_sub(self.context_lines.code_context_lines as usize))
+        .max(0);
         let nr_head_context_lines = head_context_end - head_context_start;
         let head_content_lines = content_lines[..start_line].to_vec();
         let head_content_lines = Self::remove_conflict_markers(
@@ -193,18 +201,20 @@ impl GitUtils {
         )?;
         let head_context_lines = head_content_lines[head_content_lines
             .len()
-            .saturating_sub(self.context_lines as usize)
+            .saturating_sub(self.context_lines.code_context_lines as usize)
             .max(0)..]
             .to_vec();
 
         let tail_context_start = (start_line + conflict_lines.len() - 1).min(content_lines.len());
-        let tail_context_end =
-            (tail_context_start + self.context_lines as usize).min(content_lines.len());
+        let tail_context_end = (tail_context_start
+            + self.context_lines.code_context_lines as usize)
+            .min(content_lines.len());
         let nr_tail_context_lines = tail_context_end - tail_context_start;
         let tail_content_lines = content_lines[start_line + conflict_lines.len() - 1..].to_vec();
         let tail_content_lines = Self::remove_conflict_markers(tail_content_lines, marker_size)?;
-        let tail_context_lines = tail_content_lines
-            [..tail_content_lines.len().min(self.context_lines as usize)]
+        let tail_context_lines = tail_content_lines[..tail_content_lines
+            .len()
+            .min(self.context_lines.code_context_lines as usize)]
             .to_vec();
 
         Ok(Conflict {
@@ -667,12 +677,12 @@ impl GitUtils {
         commit_hash: &str,
         dir: Option<&str>,
     ) -> Result<Option<String>> {
-        let context_lines = &format!("-U{}", self.context_lines);
+        let diff_context_lines = &format!("-U{}", self.context_lines.diff_context_lines);
         let mut args = vec![
             "show",
             "--pretty=",
             "--no-color",
-            context_lines,
+            diff_context_lines,
             commit_hash,
         ];
         if let Some(directory) = dir {
