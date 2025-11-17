@@ -682,6 +682,7 @@ impl GitUtils {
             "show",
             "--pretty=",
             "--no-color",
+            "--histogram",
             diff_context_lines,
             commit_hash,
         ];
