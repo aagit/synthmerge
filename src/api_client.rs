@@ -37,7 +37,7 @@ impl ApiClient {
     fn create_client(endpoint: &EndpointConfig) -> reqwest::Client {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(endpoint.timeout))
-            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_keepalive(Duration::from_secs(10))
             .build()
             .unwrap()
     }
