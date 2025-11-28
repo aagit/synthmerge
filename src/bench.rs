@@ -155,7 +155,11 @@ impl Bench {
         let mut model_errors = HashMap::new();
 
         // Collect all results by model
-        for result in &self.results {
+        for result in self
+            .results
+            .iter()
+            .filter(|x| args.max_entries.is_none() || x.entry_index < args.max_entries.unwrap())
+        {
             let model = &result.model;
             *model_totals.entry(model.clone()).or_insert(0) += 1;
             if result.correct {
@@ -306,7 +310,11 @@ impl Bench {
         );
 
         let mut modified = false;
-        for (i, entry) in entries.iter().enumerate() {
+        for (i, entry) in entries
+            .iter()
+            .enumerate()
+            .take(args.max_entries.unwrap_or(usize::MAX))
+        {
             // Skip entries that are already processed
             if self.results.iter().any(|r| r.entry_index == i) {
                 continue;

@@ -26,6 +26,10 @@ pub struct Args {
     #[arg(long = "checkpoint-interval", default_value = "100")]
     pub checkpoint_interval: usize,
 
+    /// Maximum number of entries to process (None = all)
+    #[arg(long = "max-entries")]
+    pub max_entries: Option<usize>,
+
     /// Git directories to search for diffs
     #[arg(long = "git-dirs", value_delimiter = ',', required = true)]
     pub git_directories: Vec<String>,
