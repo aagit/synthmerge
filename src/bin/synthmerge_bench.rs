@@ -25,7 +25,7 @@ struct Args {
 
     /// Path to checkpoint file
     #[arg(short = 'k', long = "checkpoint")]
-    checkpoint_path: Option<String>,
+    checkpoint_path: String,
 
     /// Checkpoint interval (number of entries between saves)
     #[arg(long = "checkpoint-interval", default_value = "100")]
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
         &config,
         &entries,
         args.checkpoint_interval,
-        args.checkpoint_path.as_deref(),
+        &args.checkpoint_path,
         args.git_directories,
         ContextLines {
             code_context_lines: args.code_context_lines,

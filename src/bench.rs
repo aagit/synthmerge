@@ -285,7 +285,7 @@ impl Bench {
         config: &Config,
         entries: &[TestEntry],
         checkpoint_interval: usize,
-        checkpoint_path: Option<&str>,
+        checkpoint_path: &str,
         git_directories: Option<Vec<String>>,
         context_lines: ContextLines,
     ) -> Result<()> {
@@ -295,13 +295,11 @@ impl Bench {
         let git_utils = GitUtils::new(context_lines.clone());
 
         // Load existing checkpoint
-        if let Some(path) = checkpoint_path {
-            self.load_checkpoint(path)?;
-            println!(
-                "Loaded {} existing results from checkpoint",
-                self.results.len()
-            );
-        }
+        self.load_checkpoint(checkpoint_path)?;
+        println!(
+            "Loaded {} existing results from checkpoint",
+            self.results.len()
+        );
 
         let mut modified = false;
         for (i, entry) in entries.iter().enumerate() {
@@ -411,18 +409,16 @@ impl Bench {
 
             modified = true;
             // Save checkpoint periodically
-            if let Some(path) = checkpoint_path
-                && (i + 1) % checkpoint_interval == 0
-            {
+            if (i + 1) % checkpoint_interval == 0 {
                 println!("Saving checkpoint...");
-                self.save_checkpoint(path)?;
+                self.save_checkpoint(checkpoint_path)?;
             }
         }
 
         // Save final checkpoint
-        if modified && let Some(path) = checkpoint_path {
+        if modified {
             println!("Saving final checkpoint...");
-            self.save_checkpoint(path)?;
+            self.save_checkpoint(checkpoint_path)?;
         }
 
         Ok(())
