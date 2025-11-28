@@ -2,7 +2,7 @@
 // Copyright (C) 2025  Red Hat, Inc.
 
 use crate::config::{EndpointConfig, EndpointJson, EndpointTypeConfig, EndpointVariants};
-use crate::conflict_resolver::ConflictResolver;
+use crate::conflict_resolver::{ConflictResolver, Training};
 use anyhow::{Context, Result};
 use reqwest::Certificate;
 use std::fs::File;
@@ -17,6 +17,7 @@ pub struct ApiRequest {
     pub code: String,
     pub endpoint: EndpointConfig,
     pub git_diff: Option<String>,
+    pub training: Training,
 }
 
 #[derive(Debug)]
@@ -274,13 +275,12 @@ impl ApiClient {
             &variant.context
         };
 
-        let prompt = if let Some(git_diff) = &request.git_diff
+        let mut prompt = format!("{}\n\n{}", request.prompt, request.training);
+        if let Some(git_diff) = &request.git_diff
             && !context.as_ref().map(|x| x.no_diff).unwrap_or(false)
         {
-            format!("{}\n\n{}", request.prompt, git_diff)
-        } else {
-            request.prompt.clone()
-        };
+            prompt = format!("{}\n\n{}", prompt, git_diff)
+        }
 
         log::debug!("Prompt:\n{}", prompt);
         log::info!("Message:\n{}", request.message);
