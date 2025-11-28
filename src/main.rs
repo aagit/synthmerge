@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
     let conflicts = git_utils.find_conflicts()?;
 
     if conflicts.is_empty() {
-        println!("No conflicts found after cherry-pick attempt.");
+        println!("No conflicts found.");
         return Ok(());
     }
 
