@@ -356,10 +356,8 @@ Rewrite the {nr_head_context_lines} line{head_plural} after {code_start} and the
 {code_start}
 {code}{code_end}"#,
             patch_start = Self::PATCH_START,
-            patch = patch,
             patch_end = Self::PATCH_END,
             code_start = Self::CODE_START,
-            code = code,
             code_end = Self::CODE_END,
         )
     }
