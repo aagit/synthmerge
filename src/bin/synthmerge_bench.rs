@@ -32,8 +32,8 @@ struct Args {
     checkpoint_interval: usize,
 
     /// Git directories to search for diffs
-    #[arg(long = "git-dirs", value_delimiter = ',')]
-    git_directories: Option<Vec<String>>,
+    #[arg(long = "git-dirs", value_delimiter = ',', required = true)]
+    git_directories: Vec<String>,
 
     /// Number of context lines to include around conflict markers
     #[arg(long = "code-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]

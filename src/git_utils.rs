@@ -236,12 +236,19 @@ impl GitUtils {
             || remote_start <= base_start
             || base_start <= local_start
         {
-            return Err(anyhow::anyhow!("Invalid conflict markers"));
+            return Err(anyhow::anyhow!(
+                "Invalid conflict markers: ai_start={}, remote_end={}, remote_start={}, base_start={}, local_start={}",
+                ai_start,
+                remote_end,
+                remote_start,
+                base_start,
+                local_start
+            ));
         }
 
         let local_lines: Vec<&str> = conflict_lines[local_start + 1..base_start].to_vec();
         let base_lines: Vec<&str> = conflict_lines[base_start + 1..remote_start].to_vec();
-        let remote_lines: Vec<&str> = conflict_lines[remote_start + 1..remote_end].to_vec();
+        let remote_lines: Vec<&str> = conflict_lines[remote_start + 1..ai_start].to_vec();
 
         let content_lines: Vec<&str> = content.split_inclusive('\n').collect();
 
@@ -754,14 +761,15 @@ impl GitUtils {
 
     /// Extract the patch from a specific commit hash
     pub fn extract_diff(&self, commit_hash: &str) -> Result<Option<String>> {
-        self.extract_diff_in_dir(commit_hash, None)
+        self.git_show_in_dir(commit_hash, None, None)
     }
 
     /// Extract the patch from a specific commit hash
-    pub fn extract_diff_in_dir(
+    pub fn git_show_in_dir(
         &self,
         commit_hash: &str,
         dir: Option<&str>,
+        filename: Option<&str>,
     ) -> Result<Option<String>> {
         let diff_context_lines = &format!("-U{}", self.context_lines.diff_context_lines);
         let dir = if let Some(directory) = dir {
@@ -769,43 +777,56 @@ impl GitUtils {
         } else {
             ".".to_string()
         };
-        let args = vec![
-            "-C",
-            &dir,
-            "show",
-            "--pretty=",
-            "--no-color",
-            "--histogram",
-            diff_context_lines,
-            commit_hash,
-        ];
-        let output = GitCommand::new("git")
-            .args(&args)
-            .output()
-            .context("Failed to execute git show")?;
+        let output = if let Some(file) = filename {
+            let filearg = &format!("{}:{}", commit_hash, file);
+            let args = vec!["-C", &dir, "show", filearg];
+            GitCommand::new("git")
+                .args(&args)
+                .output()
+                .context("Failed to execute git show")?
+        } else {
+            let args = vec![
+                "-C",
+                &dir,
+                "show",
+                "--pretty=",
+                "--no-color",
+                "--histogram",
+                diff_context_lines,
+                commit_hash,
+            ];
+            GitCommand::new("git")
+                .args(&args)
+                .output()
+                .context("Failed to execute git show")?
+        };
 
         if !output.status.success() {
             return Ok(None);
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let lines: Vec<&str> = stdout.split_inclusive('\n').collect();
-        let mut result_lines = Vec::new();
-        let mut include_line = true;
+        if filename.is_some() {
+            Ok(Some(stdout))
+        } else {
+            let lines: Vec<&str> = stdout.split_inclusive('\n').collect();
+            let mut result_lines = Vec::new();
+            let mut include_line = true;
 
-        for line in lines {
-            if line.starts_with("diff --git") {
-                result_lines.push(line);
-                include_line = false;
-            } else if line.starts_with("---") {
-                result_lines.push(line);
-                include_line = true;
-            } else if include_line {
-                result_lines.push(line);
+            for line in lines {
+                if line.starts_with("diff --git") {
+                    result_lines.push(line);
+                    include_line = false;
+                } else if line.starts_with("---") {
+                    result_lines.push(line);
+                    include_line = true;
+                } else if include_line {
+                    result_lines.push(line);
+                }
             }
-        }
 
-        Ok(Some(result_lines.join("")))
+            Ok(Some(result_lines.join("")))
+        }
     }
 }
 

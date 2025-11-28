@@ -286,7 +286,7 @@ impl Bench {
         entries: &[TestEntry],
         checkpoint_interval: usize,
         checkpoint_path: &str,
-        git_directories: Option<Vec<String>>,
+        git_directories: Vec<String>,
         context_lines: ContextLines,
     ) -> Result<()> {
         println!("Running statistics test on {} entries", entries.len());
@@ -313,8 +313,6 @@ impl Bench {
             println!("{}", processing_msg);
 
             // Create conflict from test entry
-            let conflict = self.create_conflict_from_entry(entry)?;
-
             let git_diff = self.git_diffs.get(&entry.patch_commit_hash).cloned();
             let git_diff = git_diff.or_else(|| {
                 // cache only the current commit
@@ -323,30 +321,18 @@ impl Bench {
                 // Find the commit hash from the patch_commit_hash
                 let commit_hash = &entry.patch_commit_hash;
                 // Extract the diff from git
-                if let Some(dirs) = &git_directories {
-                    // Try each directory
-                    for dir in dirs {
-                        if let Some(diff) = git_utils
-                            .extract_diff_in_dir(commit_hash, Some(dir))
-                            .unwrap_or(None)
-                        {
-                            // Store the diff for future use
-                            self.git_diffs.insert(commit_hash.clone(), diff.clone());
-                            return Some(diff);
-                        }
-                    }
-                    if true {
-                        panic!(
-                            "Git diff for commit {} not found in any of the provided directories",
-                            commit_hash
-                        );
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+                // Try each directory
+                if let Some(diff) =
+                    self.git_show_dirs(&git_utils, &git_directories, commit_hash, None)
+                {
+                    // Store the diff for future use
+                    self.git_diffs.insert(commit_hash.clone(), diff.clone());
+                    return Some(diff);
                 }
+                panic!("Git diff for commit {} not found", commit_hash);
             });
+
+            let conflict = self.create_conflict_from_entry(entry)?;
 
             let resolver = ConflictResolver::new(context_lines.clone(), config, git_diff);
 
@@ -425,6 +411,21 @@ impl Bench {
         }
 
         Ok(())
+    }
+
+    fn git_show_dirs(
+        &self,
+        git_utils: &GitUtils,
+        dirs: &[String],
+        commit_hash: &str,
+        filename: Option<&str>,
+    ) -> Option<String> {
+        for dir in dirs {
+            if let Ok(Some(diff)) = git_utils.git_show_in_dir(commit_hash, Some(dir), filename) {
+                return Some(diff);
+            }
+        }
+        None
     }
 
     fn add_error_results_for_all_endpoints(
@@ -523,8 +524,6 @@ impl Bench {
     }
 
     fn create_conflict_from_entry(&self, entry: &TestEntry) -> Result<Conflict> {
-        // For simplicity, we'll create a basic conflict structure
-        // In a real test, this would be more sophisticated
         let mut base_lines = Vec::new();
         let mut remote_lines = Vec::new();
         let mut nr_head_context_lines = 0;
