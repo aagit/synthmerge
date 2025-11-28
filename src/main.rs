@@ -49,11 +49,14 @@ async fn main() -> Result<()> {
     log::info!("Using config file: {}", args.config_path);
 
     // Initialize git utilities
-    let mut git_utils = GitUtils::new(ContextLines {
-        code_context_lines: args.code_context_lines,
-        diff_context_lines: args.diff_context_lines,
-        patch_context_lines: args.patch_context_lines,
-    });
+    let mut git_utils = GitUtils::new(
+        ContextLines {
+            code_context_lines: args.code_context_lines,
+            diff_context_lines: args.diff_context_lines,
+            patch_context_lines: args.patch_context_lines,
+        },
+        true,
+    );
 
     // Try to cherry-pick with diff3 mode
     let result = git_utils.check_diff3();

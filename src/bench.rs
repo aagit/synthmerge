@@ -292,7 +292,7 @@ impl Bench {
         println!("Running statistics test on {} entries", entries.len());
 
         // Create a new GitUtils instance to find the commit hash
-        let git_utils = GitUtils::new(context_lines.clone());
+        let git_utils = GitUtils::new(context_lines.clone(), false);
 
         // Load existing checkpoint
         self.load_checkpoint(checkpoint_path)?;

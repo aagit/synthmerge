@@ -56,8 +56,8 @@ impl GitCommand {
 pub struct GitUtils {
     context_lines: ContextLines,
     in_rebase: bool,
-    git_root: String,
-    git_dir: String,
+    git_root: Option<String>,
+    git_dir: Option<String>,
 }
 
 impl GitUtils {
@@ -67,9 +67,17 @@ impl GitUtils {
 
     const DEFAULT_MARKER_SIZE: usize = 7;
 
-    pub fn new(context_lines: ContextLines) -> Self {
-        let git_root = Self::get_git_root_uncached().unwrap_or_default();
-        let git_dir = Self::get_git_dir_uncached().unwrap_or_default();
+    pub fn new(context_lines: ContextLines, init_git: bool) -> Self {
+        let git_root = if init_git {
+            Self::get_git_root_uncached().ok()
+        } else {
+            None
+        };
+        let git_dir = if init_git {
+            Self::get_git_dir_uncached().ok()
+        } else {
+            None
+        };
         GitUtils {
             context_lines,
             in_rebase: false,
@@ -132,7 +140,7 @@ impl GitUtils {
 
     /// Parse conflicts from a specific file
     fn parse_conflict_from_file(&self, file_path: &str) -> Result<Vec<Conflict>> {
-        let path = Path::new(&self.git_root).join(file_path);
+        let path = Path::new(self.git_root.as_ref().unwrap()).join(file_path);
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read file: {}", file_path))?;
 
@@ -277,7 +285,7 @@ impl GitUtils {
         let output = GitCommand::new("git")
             .args([
                 "-C",
-                &self.git_root,
+                self.git_root.as_ref().unwrap(),
                 "check-attr",
                 "conflict-marker-size",
                 "--",
@@ -375,7 +383,8 @@ impl GitUtils {
             );
 
             // Read the file
-            let path = Path::new(&self.git_root).join(&conflict.conflict.file_path);
+            let path =
+                Path::new(self.git_root.as_ref().unwrap()).join(&conflict.conflict.file_path);
             let mut content = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read file: {}", conflict.conflict.file_path))?;
             // Split content into lines
@@ -581,12 +590,12 @@ impl GitUtils {
 
     /// Update the git merge message to include Assisted-by line
     fn update_merge_message(&self) -> Result<()> {
-        let git_dir = &self.git_dir;
+        let git_dir = self.git_dir.as_ref().unwrap();
 
         let merge_msg_path = if self.in_rebase {
-            Path::new(&git_dir).join(Self::REBASE_MESSAGE_FILE)
+            Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE)
         } else {
-            Path::new(&git_dir).join(Self::MERGE_MSG_FILE)
+            Path::new(git_dir).join(Self::MERGE_MSG_FILE)
         };
         let merge_msg_content = match fs::read_to_string(&merge_msg_path) {
             Ok(content) => content,
@@ -655,14 +664,14 @@ impl GitUtils {
 
     /// Check if we are currently in a cherry-pick, merge, or rebase state
     pub fn find_commit_hash(&mut self) -> Result<Option<String>> {
-        let git_dir = &self.git_dir;
+        let git_dir = self.git_dir.as_ref().unwrap();
 
         // Check for cherry-pick, merge, and rebase HEAD files
         let mut head_files = Vec::new();
         for &prefix in &["CHERRY_PICK", "MERGE", "REBASE", "REVERT"] {
             head_files.push((
                 prefix,
-                Path::new(&git_dir).join(format!("{}_{}", prefix, "HEAD")),
+                Path::new(git_dir).join(format!("{}_{}", prefix, "HEAD")),
             ));
         }
 
@@ -695,7 +704,7 @@ impl GitUtils {
             // Check if it's a rebase
             if name == "REBASE" {
                 // Also check if the rebase message file exists
-                let rebase_msg_path = Path::new(&git_dir).join(Self::REBASE_MESSAGE_FILE);
+                let rebase_msg_path = Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE);
                 if rebase_msg_path.exists() {
                     self.in_rebase = true;
                 }
