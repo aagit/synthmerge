@@ -150,7 +150,7 @@ impl GitUtils {
         let mut conflicts = Vec::new();
         let re = Regex::new(&format!(
             r"(?ms)(^{} .*?^{} .*?^{}\n.*?^{}.*?\n)",
-            Self::create_head_marker(marker_size),
+            Self::create_local_marker(marker_size),
             Self::create_base_marker(marker_size)
                 .chars()
                 .map(|c| format!(r"\{}", c))
@@ -195,7 +195,7 @@ impl GitUtils {
         let local_start = conflict_lines
             .iter()
             .position(|&line| {
-                line.starts_with(&format!("{} ", Self::create_head_marker(marker_size)))
+                line.starts_with(&format!("{} ", Self::create_local_marker(marker_size)))
             })
             .context("Failed to find head marker")?;
 
@@ -316,8 +316,8 @@ impl GitUtils {
         marker_char.to_string().repeat(size)
     }
 
-    /// Create a head marker with specified size
-    fn create_head_marker(size: usize) -> String {
+    /// Create a local marker with specified size
+    fn create_local_marker(size: usize) -> String {
         Self::create_marker('<', size)
     }
 
@@ -343,7 +343,7 @@ impl GitUtils {
         let result: Vec<&str> = content_lines
             .into_iter()
             .filter(|line| {
-                if line.starts_with(&Self::create_head_marker(marker_size)) {
+                if line.starts_with(&Self::create_local_marker(marker_size)) {
                     in_head = true;
                     skip_lines = true;
                     return false;
