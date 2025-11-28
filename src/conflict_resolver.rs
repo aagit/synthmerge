@@ -286,8 +286,7 @@ impl<'a> ConflictResolver<'a> {
                 r#"The PATCH originates from the DIFF between {diff_start}{diff_end}.
 
 {diff_start}
-{s}{diff_end}
-"#,
+{s}{diff_end}"#,
                 diff_start = Self::DIFF_START,
                 diff_end = Self::DIFF_END,
             )
@@ -328,8 +327,7 @@ Rewrite the {nr_head_context_lines} lines after {code_start} and the {nr_tail_co
 {patch}{patch_end}
 
 {code_start}
-{code}{code_end}
-"#,
+{code}{code_end}"#,
             patch_start = Self::PATCH_START,
             patch = patch,
             patch_end = Self::PATCH_END,
