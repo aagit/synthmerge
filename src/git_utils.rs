@@ -15,6 +15,44 @@ pub struct ContextLines {
     pub patch_context_lines: u32,
 }
 
+// Wrapper around Command to allow inheritance-like behavior
+pub struct GitCommand {
+    command: Command,
+}
+
+impl GitCommand {
+    pub fn new(program: &str) -> Self {
+        let cmd = Command::new(program);
+        GitCommand { command: cmd }
+    }
+
+    pub fn args<I, S>(&mut self, args: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        self.command.args(args);
+        self
+    }
+
+    pub fn output(&mut self) -> Result<std::process::Output> {
+        let program = self.command.get_program().to_string_lossy().into_owned();
+        let args: Vec<_> = self.command.get_args().collect();
+        let args_str = args
+            .iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let output = self.command.output().context("Failed to execute command")?;
+        log::trace!("GitCommand: {program} {args_str} {{{}}}", output.status);
+        if !output.status.success() {
+            log::trace!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            log::trace!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+        }
+        Ok(output)
+    }
+}
+
 pub struct GitUtils {
     context_lines: ContextLines,
     in_rebase: bool,
@@ -42,7 +80,7 @@ impl GitUtils {
 
     /// Check that git cherry-pick default is diff3 for merge.conflictStyle
     pub fn check_diff3(&self) -> Result<()> {
-        let output = Command::new("git")
+        let output = GitCommand::new("git")
             .args(["config", "--get", "merge.conflictStyle"])
             .output()
             .context("Failed to get git config")?;
@@ -70,7 +108,7 @@ impl GitUtils {
         let mut conflicts = Vec::new();
 
         // Find all files that might contain conflicts
-        let output = Command::new("git")
+        let output = GitCommand::new("git")
             .args(["diff", "--name-only", "--diff-filter=U"])
             .output()
             .context("Failed to execute git diff")?;
@@ -236,7 +274,7 @@ impl GitUtils {
     /// Get the marker size for a specific file from gitattributes
     fn get_marker_size_for_file(&self, file_path: &str) -> Result<usize> {
         // Check if we can find the marker size in gitattributes for this file
-        let output = Command::new("git")
+        let output = GitCommand::new("git")
             .args([
                 "-C",
                 &self.git_root,
@@ -507,7 +545,7 @@ impl GitUtils {
 
     /// Get the git root directory
     fn get_git_root_uncached() -> Result<String> {
-        let output = Command::new("git")
+        let output = GitCommand::new("git")
             .args(["rev-parse", "--show-toplevel"])
             .output()
             .context("Failed to execute git rev-parse")?;
@@ -525,7 +563,7 @@ impl GitUtils {
 
     /// Get the git directory
     fn get_git_dir_uncached() -> Result<String> {
-        let output = Command::new("git")
+        let output = GitCommand::new("git")
             .args(["rev-parse", "--git-dir"])
             .output()
             .context("Failed to execute git rev-parse")?;
@@ -679,7 +717,14 @@ impl GitUtils {
         dir: Option<&str>,
     ) -> Result<Option<String>> {
         let diff_context_lines = &format!("-U{}", self.context_lines.diff_context_lines);
-        let mut args = vec![
+        let dir = if let Some(directory) = dir {
+            shellexpand::tilde(directory).to_string()
+        } else {
+            ".".to_string()
+        };
+        let args = vec![
+            "-C",
+            &dir,
             "show",
             "--pretty=",
             "--no-color",
@@ -687,10 +732,7 @@ impl GitUtils {
             diff_context_lines,
             commit_hash,
         ];
-        if let Some(directory) = dir {
-            args.splice(0..0, ["-C", directory].iter().cloned());
-        }
-        let output = Command::new("git")
+        let output = GitCommand::new("git")
             .args(&args)
             .output()
             .context("Failed to execute git show")?;
