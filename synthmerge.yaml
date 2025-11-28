@@ -11,7 +11,8 @@ endpoints:
   - name: "llama.cpp vulkan simple"
     url: "http://localhost:8811/v1/chat/completions"
     type: "openai"
-    #no_context: false
+    #context:
+    #  no_diff: true
 
   - name: "llama.cpp vulkan"
     url: "http://localhost:8811/v1/chat/completions"
@@ -19,18 +20,36 @@ endpoints:
     variants:
       # one query for each entry in the variants list
       - name: "default"
-      - name: "min_p"
-        temperature: 0.3
-        top_p: 1.0
-        top_k: 0
-        min_p: 0.9
-      - name: "no_context"
-        no_context: true
+      #- name: "min_p"
+      #  json:
+      #    temperature: 0.3
+      #    top_p: 1.0
+      #    top_k: 0
+      #    min_p: 0.9
+      - name: "no_diff"
+        context:
+          no_diff: true
     
-  - name: "Gemini 2.5 pro"
+  - name: "Gemini 3 pro preview"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     type: "openai"
     api_key_file: "~/.gemini.api-key"
     json:
-      model: "gemini-2.5-pro"
-      reasoning_effort: "high"
+      model: "gemini-3-pro-preview"
+      reasoning_effort: "low"
+
+  - name: "Claude Sonnet 4.0"
+    url: "https://host/path"
+    type: "anthropic"
+    api_key_file: "~/.keys/claude.api-key"
+    json:
+      anthropic_version: "something-YYYY-MM-DD"
+      max_tokens: 20000
+      temperature: 0
+    variants:
+      - name: "default"
+      - name: "no_diff"
+        context:
+          no_diff: true
+    # Optional root certificate for HTTPS endpoints
+    # root_certificate_pem: "~/.ssl/corp-ca.pem"

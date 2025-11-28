@@ -35,6 +35,7 @@
   - `merge`
   - `rebase`
   - `revert`
+  - `stash pop`
 
 - **Model Flexibility**  
   No fine-tuning required, any instruct large language model can be used
@@ -44,12 +45,14 @@
   - [Patchpal-backend](https://gitlab.com/patchpal-ai/patchpal-backend) (fine-tuned specifically for conflict resolution)
   - Self-hosted open-weight open source LLMs with OpenAI-compatible endpoints
   - Gemini (via OpenAI-compatible API)
+  - Claude (via Anthropic API)
 
 - **Parameter Variants Support**  
   Each AI endpoint can be configured with multiple parameter variants to run multiple inference strategies:
   - Different reasoning effort levels (high, medium, low)
   - Temperature, top_p, top_k, min_p sampling parameters
-  - Context handling options (no_context flag)
+  - Context handling options (context: no_diff: flag)
+  - Custom JSON parameters that can be injected into the request payload from the YAML configuration (either at the endpoint level or in each variant)
 
 - **Results Deduplication**  
   Consolidates identical solutions and displays model and/or parameter variant agreement
@@ -61,6 +64,7 @@
 - **Fail-Safe Design**  
   - When one model fails to resolve a conflict, Git's original conflict remains alongside solutions from other models for that hunk
   - Each AI endpoint can be configured with timeout, delay, and max_delay parameters
+  - Custom root certificates can be added to the endpoint configuration
 
 ---
 
@@ -107,7 +111,8 @@ endpoints:
   - name: "llama.cpp vulkan simple"
     url: "http://localhost:8811/v1/chat/completions"
     type: "openai"
-    #no_context: false
+    #context:
+    #  no_diff: true
 
   - name: "llama.cpp vulkan"
     url: "http://localhost:8811/v1/chat/completions"
@@ -115,21 +120,39 @@ endpoints:
     variants:
       # one query for each entry in the variants list
       - name: "default"
-      - name: "min_p"
-        temperature: 0.3
-        top_p: 1.0
-        top_k: 0
-        min_p: 0.9
-      - name: "no_context"
-        no_context: true
+      #- name: "min_p"
+      #  json:
+      #    temperature: 0.3
+      #    top_p: 1.0
+      #    top_k: 0
+      #    min_p: 0.9
+      - name: "no_diff"
+        context:
+          no_diff: true
     
-  - name: "Gemini 2.5 pro"
+  - name: "Gemini 3 pro preview"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     type: "openai"
-    model: "gemini-2.5-pro"
     api_key_file: "~/.gemini.api-key"
+    json:
+      model: "gemini-3-pro-preview"
+      reasoning_effort: "low"
+
+  - name: "Claude Sonnet 4.0"
+    url: "https://host/path"
+    type: "anthropic"
+    api_key_file: "~/.keys/claude.api-key"
+    json:
+      anthropic_version: "something-YYYY-MM-DD"
+      max_tokens: 20000
+      temperature: 0
     variants:
-      - reasoning_effort: "high"
+      - name: "default"
+      - name: "no_diff"
+        context:
+          no_diff: true
+    # Optional root certificate for HTTPS endpoints
+    # root_certificate_pem: "~/.ssl/corp-ca.pem"
 ```
 
 ---
@@ -162,6 +185,7 @@ rg-edit -E emacsclient -U -e '(?s)^<<<<<<<+ .*?^>>>>>>>+ '
 |---------------|------------------------|-------|
 | **Patchpal-backend** | `type: "patchpal"` | Fine-tuned for patch resolution |
 | **OpenAI protocol** | `type: "openai"` | Self-hosted LLMs (e.g., `llama.cpp`) and Gemini |
+| **Anthropic protocol** | `type: "anthropic"` | Claude models |
 
 > ✅ **Gemini supports a compatible OpenAI endpoint**  
 > ✅ **Models work with stock weights** – the prompt engineering simulates Patchpal's fine-tuned behavior.
@@ -181,6 +205,14 @@ The following statistics were generated using the `synthmerge_bench` tool on a C
 The probability that at least one of the three differnt PatchPal beams is exact (not ignoring  whitespace differences) is: 66.33% + 11.25% + 2.92% = 80.5%. This measurement used only new test data never exposed to the model during the fine tuning process.
 
 ```
+Model: Claude Sonnet 4.0 (default)
+  Accuracy: 64.30% (726/1129)
+  Accuracy (aligned): 67.67% (764/1129)
+  Accuracy (stripped): 70.68% (798/1129)
+  Error Rate: 0.09% (1/1129)
+  Average tokens: 419.40
+  Average duration: 13.86 s
+
 # only the Beam 0 is comparable to the non Patchpal models
 Model: Patchpal AI #0 (Beam search 0)
   Accuracy: 63.33% (715/1129)
@@ -188,19 +220,12 @@ Model: Patchpal AI #0 (Beam search 0)
   Accuracy (stripped): 71.12% (803/1129) # might be duplicate with other beams
   Error Rate: 0.53% (6/1129) # might be duplicate with other beams
 
-# if Beam 0 is wrong, Beam 1 is right 11.25% of the time
-Model: Patchpal AI #1 (Beam search 1) of the time
-  Accuracy: 11.25% (127/1129)
-  Accuracy (aligned): 22.50% (254/1129) # might be duplicate with other beams
-  Accuracy (stripped): 33.92% (383/1129) # might be duplicate with other beams
-  Error Rate: 0.53% (6/1129)
-
-# if Beam 0 and Beam 1 are wrong, Beam 2 is right 2.92% of the time
-Model: Patchpal AI #2 (Beam search 2)
-  Accuracy: 2.92% (33/1129)
-  Accuracy (aligned): 15.50% (175/1129) # might be duplicate with other beams
-  Accuracy (stripped): 25.86% (292/1129) # might be duplicate with other beams
-  Error Rate: 0.62% (7/1129)
+Model: Claude Sonnet 4.0 (no_diff)
+  Accuracy: 62.44% (705/1129)
+  Accuracy (aligned): 65.37% (738/1129)
+  Accuracy (stripped): 68.64% (775/1129)
+  Error Rate: 0.00% (0/1129)
+  Average duration: 14.06 s
 
 Model: Gemini 2.5 pro (high) # reasoning_effort: high
   Accuracy: 55.18% (623/1129)
@@ -224,11 +249,25 @@ Model: Qwen3-Coder-30B-A3B-Instruct (default)
 
 # temperature: 0.7 top_k: 20 top_p: 0.8 min_p: 0
 # llama.cpp vulkan Q6_K
-Model: Qwen3-Coder-30B-A3B-Instruct (no_context)
+Model: Qwen3-Coder-30B-A3B-Instruct (no_diff)
   Accuracy: 45.88% (518/1129)
   Accuracy (aligned): 50.13% (566/1129)
   Accuracy (stripped): 53.59% (605/1129)
   Error Rate: 0.00% (0/1129)
+
+# if Beam 0 is wrong, Beam 1 is right 11.25% of the time
+Model: Patchpal AI #1 (Beam search 1) of the time
+  Accuracy: 11.25% (127/1129)
+  Accuracy (aligned): 22.50% (254/1129) # might be duplicate with other beams
+  Accuracy (stripped): 33.92% (383/1129) # might be duplicate with other beams
+  Error Rate: 0.53% (6/1129)
+
+# if Beam 0 and Beam 1 are wrong, Beam 2 is right 2.92% of the time
+Model: Patchpal AI #2 (Beam search 2)
+  Accuracy: 2.92% (33/1129)
+  Accuracy (aligned): 15.50% (175/1129) # might be duplicate with other beams
+  Accuracy (stripped): 25.86% (292/1129) # might be duplicate with other beams
+  Error Rate: 0.62% (7/1129)
 ```
 
 ---

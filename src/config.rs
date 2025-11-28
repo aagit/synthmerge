@@ -275,11 +275,12 @@ mod tests {
     fn test_config_loading() {
         let config_yaml = include_str!(concat!("../", env!("CARGO_PKG_NAME"), ".yaml"));
         let config: Config = serde_yaml::from_str(config_yaml).unwrap();
-        assert_eq!(config.endpoints.len(), 4);
+        assert_eq!(config.endpoints.len(), 5);
         assert_eq!(config.endpoints[0].name, "Patchpal AI");
         assert_eq!(config.endpoints[1].name, "llama.cpp vulkan simple");
         assert_eq!(config.endpoints[2].name, "llama.cpp vulkan");
-        assert_eq!(config.endpoints[3].name, "Gemini 2.5 pro");
+        assert_eq!(config.endpoints[3].name, "Gemini 3 pro preview");
+        assert_eq!(config.endpoints[4].name, "Claude Sonnet 4.0");
     }
 }
 
