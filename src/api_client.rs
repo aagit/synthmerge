@@ -456,7 +456,10 @@ impl ApiClient {
                     );
 
                     match response_handler(&response_text) {
-                        Ok(api_response) => return Ok(api_response),
+                        Ok(api_response) => {
+                            self.apply_wait().await;
+                            return Ok(api_response);
+                        }
                         Err(e) => {
                             self.apply_delay(&mut delay, max_delay, &e).await;
                             last_error = Some(e);
@@ -470,6 +473,7 @@ impl ApiClient {
                             "Timeout error for endpoint {}. Consider increasing the timeout.",
                             self.endpoint.name
                         );
+                        self.apply_wait().await;
                         return Err(e.into());
                     }
                     self.apply_delay(&mut delay, max_delay, &e).await;
@@ -478,6 +482,13 @@ impl ApiClient {
             }
         }
         Err(last_error.context("Failed to send request after retries")?)
+    }
+
+    async fn apply_wait(&self) {
+        if self.endpoint.wait != 0 {
+            log::trace!("Waiting {}ms before next request", self.endpoint.wait);
+            tokio::time::sleep(Duration::from_millis(self.endpoint.wait)).await;
+        }
     }
 
     async fn apply_delay<E>(&self, delay: &mut Duration, max_delay: Duration, error: &E)
