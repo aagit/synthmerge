@@ -206,26 +206,23 @@ The probability that at least one of the three differnt PatchPal beams is exact 
 
 ```
 Model: Claude Sonnet 4.0 (default)
-  Accuracy: 64.30% (726/1129)
-  Accuracy (aligned): 67.67% (764/1129)
-  Accuracy (stripped): 70.68% (798/1129)
+  Accuracy: 66.52% (751/1129)
+  Accuracy (aligned): 69.71% (787/1129)
+  Accuracy (stripped): 72.63% (820/1129)
   Error Rate: 0.09% (1/1129)
-  Average tokens: 419.40
-  Average duration: 13.86 s
 
 # only the Beam 0 is comparable to the non Patchpal models
-Model: Patchpal AI #0 (Beam search 0)
-  Accuracy: 63.33% (715/1129)
-  Accuracy (aligned): 67.76% (765/1129) # might be duplicate with other beams
+Model: Patchpal AI #0
+  Accuracy: 64.57% (729/1129)
+  Accuracy (aligned): 68.47% (773/1129) # might be duplicate with other beams
   Accuracy (stripped): 71.12% (803/1129) # might be duplicate with other beams
-  Error Rate: 0.53% (6/1129) # might be duplicate with other beams
+  Error Rate: 0.44% (5/1129) # might be duplicate with other beams
 
 Model: Claude Sonnet 4.0 (no_diff)
-  Accuracy: 62.44% (705/1129)
-  Accuracy (aligned): 65.37% (738/1129)
-  Accuracy (stripped): 68.64% (775/1129)
-  Error Rate: 0.00% (0/1129)
-  Average duration: 14.06 s
+  Accuracy: 64.30% (726/1129)
+  Accuracy (aligned): 67.40% (761/1129)
+  Accuracy (stripped): 70.24% (793/1129)
+  Error Rate: 0.53% (6/1129)
 
 Model: Gemini 2.5 pro (high) # reasoning_effort: high
   Accuracy: 55.18% (623/1129)
@@ -233,11 +230,17 @@ Model: Gemini 2.5 pro (high) # reasoning_effort: high
   Accuracy (stripped): 63.42% (716/1129)
   Error Rate: 0.00% (0/1129)
 
-Model: Gemini 2.5 pro (low) # reasoning_effort: low
-  Accuracy: 51.64% (583/1129)
-  Accuracy (aligned): 56.78% (641/1129)
-  Accuracy (stripped): 58.90% (665/1129)
-  Error Rate: 0.18% (2/1129)
+Model: Gemini 2.5 pro (low default)
+  Accuracy: 53.06% (599/1129)
+  Accuracy (aligned): 57.31% (647/1129)
+  Accuracy (stripped): 59.96% (677/1129)
+  Error Rate: 2.48% (28/1129)
+
+Model: Gemini 2.5 pro (low no_diff)
+  Accuracy: 49.16% (555/1129)
+  Accuracy (aligned): 52.61% (594/1129)
+  Accuracy (stripped): 54.38% (614/1129)
+  Error Rate: 3.37% (38/1129)
 
 # temperature: 0.7 top_k: 20 top_p: 0.8 min_p: 0
 # llama.cpp vulkan Q6_K
@@ -255,19 +258,19 @@ Model: Qwen3-Coder-30B-A3B-Instruct (no_diff)
   Accuracy (stripped): 53.59% (605/1129)
   Error Rate: 0.00% (0/1129)
 
-# if Beam 0 is wrong, Beam 1 is right 11.25% of the time
-Model: Patchpal AI #1 (Beam search 1) of the time
-  Accuracy: 11.25% (127/1129)
-  Accuracy (aligned): 22.50% (254/1129) # might be duplicate with other beams
-  Accuracy (stripped): 33.92% (383/1129) # might be duplicate with other beams
-  Error Rate: 0.53% (6/1129)
+# if Beam 0 is wrong, Beam 1 is right 10.54% of the time
+Model: Patchpal AI #1
+  Accuracy: 10.54% (119/1129)
+  Accuracy (aligned): 21.17% (239/1129) # might be duplicate with other beams
+  Accuracy (stripped): 30.03% (339/1129) # might be duplicate with other beams
+  Error Rate: 0.53% (6/1129) # might be duplicate with other beams
 
-# if Beam 0 and Beam 1 are wrong, Beam 2 is right 2.92% of the time
-Model: Patchpal AI #2 (Beam search 2)
-  Accuracy: 2.92% (33/1129)
-  Accuracy (aligned): 15.50% (175/1129) # might be duplicate with other beams
-  Accuracy (stripped): 25.86% (292/1129) # might be duplicate with other beams
-  Error Rate: 0.62% (7/1129)
+# if Beam 0 and Beam 1 are wrong, Beam 2 is right 3.37% of the time
+Model: Patchpal AI #2
+  Accuracy: 3.37% (38/1129)
+  Accuracy (aligned): 16.21% (183/1129) # might be duplicate with other beams
+  Accuracy (stripped): 23.83% (269/1129) # might be duplicate with other beams
+  Error Rate: 0.44% (5/1129) # might be duplicate with other beams
 ```
 
 ---
