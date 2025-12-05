@@ -27,8 +27,10 @@ pub struct EndpointConfig {
     pub wait: u64,
     pub root_certificate_pem: Option<String>,
     pub api_key_file: Box<Option<String>>,
+    pub x_api_key_file: Box<Option<String>>,
     pub context: Option<EndpointContext>,
     pub json: Option<EndpointJson>,
+    pub headers: Option<EndpointHeaders>,
     #[serde(flatten)]
     pub config: EndpointTypeConfig,
 }
@@ -102,6 +104,12 @@ pub struct EndpointContext {
 pub struct EndpointJson {
     #[serde(flatten)]
     pub json: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EndpointHeaders {
+    #[serde(flatten)]
+    pub headers: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl Config {
@@ -307,14 +315,15 @@ mod tests {
     fn test_config_loading() {
         let config_yaml = include_str!(concat!("../", env!("CARGO_PKG_NAME"), ".yaml"));
         let config: Config = serde_yaml::from_str(config_yaml).unwrap();
-        assert_eq!(config.endpoints.len(), 7);
-        assert_eq!(config.endpoints[0].name, "Claude Sonnet 4.0");
-        assert_eq!(config.endpoints[1].name, "Patchpal AI");
-        assert_eq!(config.endpoints[2].name, "Gemini 3 pro preview");
-        assert_eq!(config.endpoints[3].name, "Gemini 2.5 pro");
-        assert_eq!(config.endpoints[4].name, "llama.cpp vulkan minimal");
-        assert_eq!(config.endpoints[5].name, "llama.cpp vulkan");
-        assert_eq!(config.endpoints[6].name, "llama.cpp vulkan no_chat");
+        assert_eq!(config.endpoints.len(), 8);
+        assert_eq!(config.endpoints[0].name, "Claude Sonnet 4.5");
+        assert_eq!(config.endpoints[1].name, "Vertex Claude Sonnet 4.0");
+        assert_eq!(config.endpoints[2].name, "Patchpal AI");
+        assert_eq!(config.endpoints[3].name, "Gemini 3 pro preview");
+        assert_eq!(config.endpoints[4].name, "Gemini 2.5 pro");
+        assert_eq!(config.endpoints[5].name, "llama.cpp vulkan minimal");
+        assert_eq!(config.endpoints[6].name, "llama.cpp vulkan");
+        assert_eq!(config.endpoints[7].name, "llama.cpp vulkan no_chat");
     }
 }
 

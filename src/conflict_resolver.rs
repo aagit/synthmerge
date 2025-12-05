@@ -113,7 +113,6 @@ impl<'a> ConflictResolver<'a> {
                     message: message.clone(),
                     patch: patch.clone(),
                     code: code.clone(),
-                    endpoint: endpoint.clone(),
                     git_diff: git_diff.clone(),
                 };
                 let handle = tokio::spawn(async move {

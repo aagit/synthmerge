@@ -104,7 +104,26 @@ Create `~/.config/synthmerge.yaml` based on `synthmerge.yaml`:
 ```yaml
 endpoints:
 
-  - name: "Claude Sonnet 4.0"
+  - name: "Claude Sonnet 4.5"
+    url: "https://api.anthropic.com/v1/messages"
+    type: "anthropic"
+    x_api_key_file: "~/.keys/anthropic.api-key"
+    json:
+      max_tokens: 20000
+      model: "claude-sonnet-4-5"
+      temperature: 0
+    headers:
+      anthropic-version: "2023-06-01"
+    variants:
+      - name: "default"
+      - name: "no_diff"
+        context:
+          no_diff: true
+      #- name: "userctx"
+      #  context:
+      #    with_user_message: true
+
+  - name: "Vertex Claude Sonnet 4.0"
     url: "https://host/path"
     type: "anthropic"
     api_key_file: "~/.keys/claude.api-key"

@@ -16,7 +16,6 @@ pub struct ApiRequest {
     pub message: String,
     pub patch: String,
     pub code: String,
-    pub endpoint: EndpointConfig,
     pub git_diff: Option<String>,
     pub training: String,
 }
@@ -100,16 +99,13 @@ impl ApiClient {
         )
     }
 
-    async fn create_headers(
-        &self,
-        api_key_file: &Option<String>,
-    ) -> Result<reqwest::header::HeaderMap> {
+    async fn create_headers(&self) -> Result<reqwest::header::HeaderMap> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_static("application/json"),
         );
-        if let Some(api_key_file) = api_key_file {
+        if let Some(api_key_file) = &*self.endpoint.api_key_file {
             // Only add the Authorization header if an API key file is specified
             let api_key = self.read_api_key(api_key_file).await?;
             headers.insert(
@@ -118,13 +114,29 @@ impl ApiClient {
                     .context("Invalid API key")?,
             );
         }
+        if let Some(x_api_key_file) = &*self.endpoint.x_api_key_file {
+            // Only add the X-API-Key header if an API key file is specified
+            let api_key = self.read_api_key(x_api_key_file).await?;
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-api-key"),
+                reqwest::header::HeaderValue::from_str(&api_key).context("Invalid X-API-Key")?,
+            );
+        }
+        if let Some(endpoint_headers) = &self.endpoint.headers {
+            for (key, value) in &endpoint_headers.headers {
+                headers.insert(
+                    reqwest::header::HeaderName::from_bytes(key.as_bytes()).unwrap(),
+                    reqwest::header::HeaderValue::from_str(value.as_str().unwrap()).unwrap(),
+                );
+            }
+        }
         Ok(headers)
     }
 
     async fn query_openai(&self, request: &ApiRequest) -> Result<ApiResponse> {
-        let headers = self.create_headers(&request.endpoint.api_key_file).await?;
+        let headers = self.create_headers().await?;
 
-        let (variants, no_chat) = match &request.endpoint.config {
+        let (variants, no_chat) = match &self.endpoint.config {
             EndpointTypeConfig::OpenAI {
                 variants, no_chat, ..
             } => (variants, no_chat),
@@ -175,12 +187,12 @@ impl ApiClient {
                 })
             };
 
-            self.apply_parameters(&mut payload, &request.endpoint.json)?;
+            self.apply_parameters(&mut payload, &self.endpoint.json)?;
             self.apply_parameters(&mut payload, &variant.json)?;
 
             let result = self
                 .retry_request(
-                    &request.endpoint.url,
+                    &self.endpoint.url,
                     headers.clone(),
                     &payload,
                     |response_text: &str, duration: f64| -> Result<ApiResponseEntry> {
@@ -234,12 +246,12 @@ impl ApiClient {
     }
 
     async fn query_anthropic(&self, request: &ApiRequest) -> Result<ApiResponse> {
-        let variants = match &request.endpoint.config {
+        let variants = match &self.endpoint.config {
             EndpointTypeConfig::Anthropic { variants, .. } => variants,
             _ => panic!("cannot happen"),
         };
 
-        let headers = self.create_headers(&request.endpoint.api_key_file).await?;
+        let headers = self.create_headers().await?;
 
         // Handle EndpointVariants - if None, create a single entry with no parameters
         let variants_list = match variants {
@@ -265,12 +277,12 @@ impl ApiClient {
                 }));
             }
 
-            self.apply_parameters(&mut payload, &request.endpoint.json)?;
+            self.apply_parameters(&mut payload, &self.endpoint.json)?;
             self.apply_parameters(&mut payload, &variant.json)?;
 
             let result = self
                 .retry_request(
-                    &request.endpoint.url,
+                    &self.endpoint.url,
                     headers.clone(),
                     &payload,
                     |response_text: &str, duration: f64| -> Result<ApiResponseEntry> {
@@ -337,14 +349,10 @@ impl ApiClient {
     fn create_chat(&self, request: &ApiRequest, variant: &EndpointVariants) -> Vec<Option<String>> {
         let mut chat = Vec::new();
 
-        if !get_context_field!(
-            &request.endpoint.context,
-            &variant.context,
-            with_user_message
-        ) {
+        if !get_context_field!(&self.endpoint.context, &variant.context, with_user_message) {
             let mut prompt = request.prompt.clone();
             if let Some(git_diff) = &request.git_diff
-                && !get_context_field!(&request.endpoint.context, &variant.context, no_diff)
+                && !get_context_field!(&self.endpoint.context, &variant.context, no_diff)
             {
                 prompt = format!("{}\n\n{}", git_diff, prompt)
             }
@@ -356,7 +364,7 @@ impl ApiClient {
             chat.push(Some(request.prompt.clone()));
             let mut msg = request.message.clone();
             if let Some(git_diff) = &request.git_diff
-                && !get_context_field!(&request.endpoint.context, &variant.context, no_diff)
+                && !get_context_field!(&self.endpoint.context, &variant.context, no_diff)
             {
                 msg = format!("{}\n\n{}", git_diff, msg)
             }
@@ -399,6 +407,7 @@ impl ApiClient {
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_static("application/json"),
         );
+
         let payload = serde_json::json!({"jsonrpc": "2.0",
 					 "method": "inference",
 					 "params" : {"patch" : request.patch,
@@ -457,7 +466,7 @@ impl ApiClient {
             Ok(responses)
         };
 
-        self.retry_request(&request.endpoint.url, headers, &payload, response_handler)
+        self.retry_request(&self.endpoint.url, headers, &payload, response_handler)
             .await
     }
 
