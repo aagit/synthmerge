@@ -133,6 +133,123 @@ impl ApiClient {
         Ok(headers)
     }
 
+    async fn query_openai_variant(
+        &self,
+        request: &ApiRequest,
+        variant: &EndpointVariants,
+        no_chat: &bool,
+        headers: &reqwest::header::HeaderMap,
+        perplexity: &mut Vec<String>,
+    ) -> Result<ApiResponseEntry> {
+        let mut chat = self.create_chat(request, variant);
+        let mut perplexity_search = None;
+        assert!(chat.len() % 2 == 0, "{}", chat.len());
+        if !perplexity.is_empty() {
+            perplexity_search = Some(perplexity.remove(0));
+            chat.push(perplexity_search.clone());
+        }
+        let mut payload = if !*no_chat {
+            let mut payload = serde_json::json!({
+                        "messages": [],
+            });
+            let messages = payload["messages"].as_array_mut().unwrap();
+            for (i, msg) in chat.iter().enumerate().filter(|(_, s)| s.is_some()) {
+                let role = if i == 0 {
+                    "system"
+                } else if i % 2 == 1 {
+                    "user"
+                } else {
+                    "assistant"
+                };
+                messages.push(serde_json::json!({
+                    "role": role,
+                    "content": msg
+                }));
+            }
+            payload
+        } else {
+            let prompt = chat
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.is_some())
+                //.filter(|(i, s)| s.is_some() && (*i == 0 || i % 2 == 1))
+                .map(|(_, s)| s.as_ref().unwrap().clone())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+                + "\n\n";
+            serde_json::json!({
+                "prompt": prompt
+            })
+        };
+
+        self.apply_parameters(&mut payload, &self.endpoint.json)?;
+        self.apply_parameters(&mut payload, &variant.json)?;
+        if perplexity_search.is_some() {
+            payload.as_object_mut().unwrap().remove("n_probs");
+        }
+
+        self.retry_request_perplexity_search(
+            &self.endpoint.url,
+            headers.clone(),
+            &payload,
+            perplexity,
+            |response_text: &str,
+             perplexity: &mut Vec<String>,
+             duration: f64|
+             -> Result<ApiResponseEntry> {
+                // Parse JSON response to extract the content
+                let json_response: serde_json::Value = serde_json::from_str(response_text)
+                    .with_context(|| {
+                        log::warn!("Failed to parse JSON response:\n{}", response_text);
+                        "Failed to parse JSON response"
+                    })?;
+
+                let content = json_response
+                    .get("choices")
+                    .and_then(|choices| choices.get(0))
+                    .and_then(|choice| choice.get("message"))
+                    .and_then(|message| message.get("content"))
+                    .or_else(|| {
+                        json_response
+                            .get("choices")
+                            .and_then(|choices| choices.get(0))
+                            .and_then(|choice| choice.get("text"))
+                    })
+                    .and_then(|content| content.as_str())
+                    .with_context(|| {
+                        log::warn!(
+                            "Failed to extract content from response:\n{}",
+                            serde_json::to_string_pretty(&json_response).unwrap()
+                        );
+                        "Failed to extract content from response"
+                    })?;
+
+                let logprob = if perplexity_search.is_some() {
+                    Some(-1.)
+                } else {
+                    prob::logprob(&json_response, perplexity)
+                };
+
+                let total_tokens = json_response
+                    .get("usage")
+                    .and_then(|usage| usage.get("total_tokens"))
+                    .and_then(|tokens| tokens.as_u64());
+
+                let mut response_entry = ApiResponseEntry {
+                    response: content.to_string(),
+                    logprob,
+                    total_tokens,
+                    duration,
+                };
+                if let Some(prefix) = &perplexity_search {
+                    response_entry.response = format!("{}{}", prefix, response_entry.response);
+                }
+                Ok(response_entry)
+            },
+        )
+        .await
+    }
+
     async fn query_openai(&self, request: &ApiRequest) -> Result<ApiResponse> {
         let headers = self.create_headers().await?;
 
@@ -152,97 +269,129 @@ impl ApiClient {
         let mut responses = Vec::new();
 
         for variant in variants_list {
-            let chat = self.create_chat(request, variant);
-            let mut payload = if !*no_chat {
-                let mut payload = serde_json::json!({
-                            "messages": [],
-                });
-                let messages = payload["messages"].as_array_mut().unwrap();
-                for (i, msg) in chat.iter().enumerate().filter(|(_, s)| s.is_some()) {
-                    let role = if i == 0 {
-                        "system"
-                    } else if i % 2 == 1 {
-                        "user"
-                    } else {
-                        "assistant"
-                    };
-                    messages.push(serde_json::json!({
-                        "role": role,
-                        "content": msg
-                    }));
+            let mut perplexity = Vec::<String>::new();
+            let mut variant_responses = Vec::new();
+            loop {
+                variant_responses.push(
+                    self.query_openai_variant(request, variant, no_chat, &headers, &mut perplexity)
+                        .await,
+                );
+                if perplexity.is_empty() {
+                    break;
                 }
-                payload
+            }
+            if variant_responses.len() > 1 {
+                let first = &variant_responses[0].as_ref().unwrap();
+                let mut response = first.response.clone();
+                let mut duration = first.duration;
+                let mut total_tokens = first.total_tokens;
+                for other in variant_responses.iter().skip(1).flatten() {
+                    response.push('\n');
+                    response.push_str(&other.response);
+                    duration += other.duration;
+                    if let (Some(tokens), Some(other_tokens)) = (total_tokens, other.total_tokens) {
+                        total_tokens = Some(tokens + other_tokens);
+                    } else {
+                        total_tokens = None;
+                    }
+                }
+                responses.push(Ok(ApiResponseEntry {
+                    response,
+                    total_tokens,
+                    duration,
+                    logprob: first.logprob,
+                }));
             } else {
-                let prompt = chat
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, s)| s.is_some())
-                    //.filter(|(i, s)| s.is_some() && (*i == 0 || i % 2 == 1))
-                    .map(|(_, s)| s.as_ref().unwrap().clone())
-                    .collect::<Vec<_>>()
-                    .join("\n\n")
-                    + "\n\n";
-                serde_json::json!({
-                    "prompt": prompt
-                })
-            };
-
-            self.apply_parameters(&mut payload, &self.endpoint.json)?;
-            self.apply_parameters(&mut payload, &variant.json)?;
-
-            let result = self
-                .retry_request(
-                    &self.endpoint.url,
-                    headers.clone(),
-                    &payload,
-                    |response_text: &str, duration: f64| -> Result<ApiResponseEntry> {
-                        // Parse JSON response to extract the content
-                        let json_response: serde_json::Value = serde_json::from_str(response_text)
-                            .with_context(|| {
-                                log::warn!("Failed to parse JSON response:\n{}", response_text);
-                                "Failed to parse JSON response"
-                            })?;
-
-                        let content = json_response
-                            .get("choices")
-                            .and_then(|choices| choices.get(0))
-                            .and_then(|choice| choice.get("message"))
-                            .and_then(|message| message.get("content"))
-                            .or_else(|| {
-                                json_response
-                                    .get("choices")
-                                    .and_then(|choices| choices.get(0))
-                                    .and_then(|choice| choice.get("text"))
-                            })
-                            .and_then(|content| content.as_str())
-                            .with_context(|| {
-                                log::warn!(
-                                    "Failed to extract content from response:\n{}",
-                                    serde_json::to_string_pretty(&json_response).unwrap()
-                                );
-                                "Failed to extract content from response"
-                            })?;
-
-                        let logprob = prob::logprob(&json_response);
-
-                        let total_tokens = json_response
-                            .get("usage")
-                            .and_then(|usage| usage.get("total_tokens"))
-                            .and_then(|tokens| tokens.as_u64());
-
-                        Ok(ApiResponseEntry {
-                            response: content.to_string(),
-                            logprob,
-                            total_tokens,
-                            duration,
-                        })
-                    },
-                )
-                .await;
-            responses.push(result);
+                responses.extend(variant_responses)
+            }
         }
 
         Ok(responses)
+    }
+
+    async fn query_anthropic_variant(
+        &self,
+        request: &ApiRequest,
+        variant: &EndpointVariants,
+        headers: &reqwest::header::HeaderMap,
+    ) -> Result<ApiResponseEntry> {
+        let chat = self.create_chat(request, variant);
+
+        let mut payload = serde_json::json!({
+            "system": chat[0],
+            "messages": [],
+        });
+        let messages = payload["messages"].as_array_mut().unwrap();
+        for (i, msg) in chat[1..].iter().enumerate().filter(|(_, s)| s.is_some()) {
+            let role = if i % 2 == 0 { "user" } else { "assistant" };
+            messages.push(serde_json::json!({
+                "role": role,
+                "content": [{"type": "text", "text": msg}]
+            }));
+        }
+
+        self.apply_parameters(&mut payload, &self.endpoint.json)?;
+        self.apply_parameters(&mut payload, &variant.json)?;
+
+        self.retry_request(
+            &self.endpoint.url,
+            headers.clone(),
+            &payload,
+            |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponseEntry> {
+                // Parse JSON response to extract the content
+                let json_response: serde_json::Value = serde_json::from_str(response_text)
+                    .with_context(|| {
+                        log::warn!("Failed to parse JSON response:\n{}", response_text);
+                        "Failed to parse JSON response"
+                    })?;
+
+                let content = json_response
+                    .get("content")
+                    .and_then(|choices| choices.get(0))
+                    .and_then(|choice| {
+                        if let Some(type_val) = choice.get("type").and_then(|v| v.as_str()) {
+                            if type_val == "text" {
+                                choice.get("text").and_then(|text| text.as_str())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .with_context(|| {
+                        log::warn!(
+                            "Failed to extract content from response:\n{}",
+                            serde_json::to_string_pretty(&json_response).unwrap()
+                        );
+                        "Failed to extract content from response"
+                    })?;
+
+                let mut perplexity = Vec::<String>::new();
+                let logprob = prob::logprob(&json_response, &mut perplexity);
+
+                let total_tokens = json_response
+                    .get("usage")
+                    .and_then(|usage| usage.get("input_tokens"))
+                    .and_then(|tokens| tokens.as_u64())
+                    .map(|input_tokens| {
+                        input_tokens
+                            + json_response
+                                .get("usage")
+                                .and_then(|usage| usage.get("output_tokens"))
+                                .and_then(|tokens| tokens.as_u64())
+                                .unwrap_or(0)
+                    });
+
+                Ok(ApiResponseEntry {
+                    response: content.to_string(),
+                    logprob,
+                    total_tokens,
+                    duration,
+                })
+            },
+        )
+        .await
     }
 
     async fn query_anthropic(&self, request: &ApiRequest) -> Result<ApiResponse> {
@@ -262,85 +411,10 @@ impl ApiClient {
         let mut responses = Vec::new();
 
         for variant in variants_list {
-            let chat = self.create_chat(request, variant);
-
-            let mut payload = serde_json::json!({
-                "system": chat[0],
-                "messages": [],
-            });
-            let messages = payload["messages"].as_array_mut().unwrap();
-            for (i, msg) in chat[1..].iter().enumerate().filter(|(_, s)| s.is_some()) {
-                let role = if i % 2 == 0 { "user" } else { "assistant" };
-                messages.push(serde_json::json!({
-                    "role": role,
-                    "content": [{"type": "text", "text": msg}]
-                }));
-            }
-
-            self.apply_parameters(&mut payload, &self.endpoint.json)?;
-            self.apply_parameters(&mut payload, &variant.json)?;
-
-            let result = self
-                .retry_request(
-                    &self.endpoint.url,
-                    headers.clone(),
-                    &payload,
-                    |response_text: &str, duration: f64| -> Result<ApiResponseEntry> {
-                        // Parse JSON response to extract the content
-                        let json_response: serde_json::Value = serde_json::from_str(response_text)
-                            .with_context(|| {
-                                log::warn!("Failed to parse JSON response:\n{}", response_text);
-                                "Failed to parse JSON response"
-                            })?;
-
-                        let content = json_response
-                            .get("content")
-                            .and_then(|choices| choices.get(0))
-                            .and_then(|choice| {
-                                if let Some(type_val) = choice.get("type").and_then(|v| v.as_str())
-                                {
-                                    if type_val == "text" {
-                                        choice.get("text").and_then(|text| text.as_str())
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
-                            .with_context(|| {
-                                log::warn!(
-                                    "Failed to extract content from response:\n{}",
-                                    serde_json::to_string_pretty(&json_response).unwrap()
-                                );
-                                "Failed to extract content from response"
-                            })?;
-
-                        let logprob = prob::logprob(&json_response);
-
-                        let total_tokens = json_response
-                            .get("usage")
-                            .and_then(|usage| usage.get("input_tokens"))
-                            .and_then(|tokens| tokens.as_u64())
-                            .map(|input_tokens| {
-                                input_tokens
-                                    + json_response
-                                        .get("usage")
-                                        .and_then(|usage| usage.get("output_tokens"))
-                                        .and_then(|tokens| tokens.as_u64())
-                                        .unwrap_or(0)
-                            });
-
-                        Ok(ApiResponseEntry {
-                            response: content.to_string(),
-                            logprob,
-                            total_tokens,
-                            duration,
-                        })
-                    },
-                )
-                .await;
-            responses.push(result)
+            responses.push(
+                self.query_anthropic_variant(request, variant, &headers)
+                    .await,
+            );
         }
 
         Ok(responses)
@@ -413,72 +487,74 @@ impl ApiClient {
 					 "params" : {"patch" : request.patch,
 						     "code" : request.code}});
 
-        let response_handler = |response_text: &str, duration: f64| -> Result<ApiResponse> {
-            // Try to parse as JSON and extract content
-            let json_response: serde_json::Value = serde_json::from_str(response_text)
-                .with_context(|| {
-                    log::warn!("Failed to parse JSON response:\n{}", response_text);
-                    "Failed to parse JSON response"
-                })?;
-            if json_response.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0") {
-                log::warn!(
-                    "Invalid patchpal jsonrpc version:\n{}",
-                    serde_json::to_string_pretty(&json_response).unwrap()
-                );
-                return Err(anyhow::anyhow!("Invalid patchpal jsonrpc version"));
-            }
-            let responses: Vec<_> = json_response
-                .get("result")
-                .and_then(|v| v.as_array())
-                .context("Failed to extract content from patchpal response")?
-                .iter()
-                .map(|v| {
-                    (
-                        v.get(0)
-                            .and_then(|v| v.as_str())
-                            .context("Failed to extract patched code from patchpal response"),
-                        v.get(1)
-                            .and_then(|v| v.as_f64())
-                            .context("Failed to extract logprobs from patchpal response"),
-                    )
-                })
-                .map(|s| -> Result<ApiResponseEntry> {
-                    Ok(ApiResponseEntry {
-                        response: format!(
-                            "{}\n{}{}",
-                            ConflictResolver::PATCHED_CODE_START,
-                            s.0?,
-                            ConflictResolver::PATCHED_CODE_END
-                        ),
-                        logprob: s.1.ok(),
-                        total_tokens: None,
-                        duration,
+        let response_handler =
+            |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponse> {
+                // Try to parse as JSON and extract content
+                let json_response: serde_json::Value = serde_json::from_str(response_text)
+                    .with_context(|| {
+                        log::warn!("Failed to parse JSON response:\n{}", response_text);
+                        "Failed to parse JSON response"
+                    })?;
+                if json_response.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0") {
+                    log::warn!(
+                        "Invalid patchpal jsonrpc version:\n{}",
+                        serde_json::to_string_pretty(&json_response).unwrap()
+                    );
+                    return Err(anyhow::anyhow!("Invalid patchpal jsonrpc version"));
+                }
+                let responses: Vec<_> = json_response
+                    .get("result")
+                    .and_then(|v| v.as_array())
+                    .context("Failed to extract content from patchpal response")?
+                    .iter()
+                    .map(|v| {
+                        (
+                            v.get(0)
+                                .and_then(|v| v.as_str())
+                                .context("Failed to extract patched code from patchpal response"),
+                            v.get(1)
+                                .and_then(|v| v.as_f64())
+                                .context("Failed to extract logprobs from patchpal response"),
+                        )
                     })
-                })
-                .collect();
-            if responses.iter().any(Result::is_err) {
-                log::warn!(
-                    "Failed to extract content from patchpal response:\n{}",
-                    serde_json::to_string_pretty(&json_response).unwrap()
-                );
-            }
+                    .map(|s| -> Result<ApiResponseEntry> {
+                        Ok(ApiResponseEntry {
+                            response: format!(
+                                "{}\n{}{}",
+                                ConflictResolver::PATCHED_CODE_START,
+                                s.0?,
+                                ConflictResolver::PATCHED_CODE_END
+                            ),
+                            logprob: s.1.ok(),
+                            total_tokens: None,
+                            duration,
+                        })
+                    })
+                    .collect();
+                if responses.iter().any(Result::is_err) {
+                    log::warn!(
+                        "Failed to extract content from patchpal response:\n{}",
+                        serde_json::to_string_pretty(&json_response).unwrap()
+                    );
+                }
 
-            Ok(responses)
-        };
+                Ok(responses)
+            };
 
         self.retry_request(&self.endpoint.url, headers, &payload, response_handler)
             .await
     }
 
-    async fn retry_request<F, R>(
+    async fn retry_request_perplexity_search<F, R>(
         &self,
         url: &str,
         headers: reqwest::header::HeaderMap,
         payload: &serde_json::Value,
+        perplexity: &mut Vec<String>,
         response_handler: F,
     ) -> Result<R>
     where
-        F: Fn(&str, f64) -> Result<R>,
+        F: Fn(&str, &mut Vec<String>, f64) -> Result<R>,
     {
         let start = std::time::Instant::now();
         let mut last_error = None;
@@ -521,7 +597,7 @@ impl ApiClient {
                         .unwrap_or(response_text.clone())
                     );
 
-                    match response_handler(&response_text, duration) {
+                    match response_handler(&response_text, perplexity, duration) {
                         Ok(api_response) => {
                             self.apply_wait().await;
                             return Ok(api_response);
@@ -548,6 +624,27 @@ impl ApiClient {
             }
         }
         Err(last_error.context("Failed to send request after retries")?)
+    }
+
+    async fn retry_request<F, R>(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+        payload: &serde_json::Value,
+        response_handler: F,
+    ) -> Result<R>
+    where
+        F: Fn(&str, &mut Vec<String>, f64) -> Result<R>,
+    {
+        let mut perplexity = Vec::<String>::new();
+        self.retry_request_perplexity_search(
+            url,
+            headers,
+            payload,
+            &mut perplexity,
+            response_handler,
+        )
+        .await
     }
 
     async fn apply_wait(&self) {

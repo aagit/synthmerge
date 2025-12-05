@@ -62,6 +62,7 @@ struct ModelStats {
     error_rate: f64,
     avg_tokens: f64,
     avg_logprob: [f64; LogprobType::COUNT as usize],
+    std_logprob: [f64; LogprobType::COUNT as usize],
     avg_duration: f64,
 }
 
@@ -201,26 +202,39 @@ impl Bench {
                     .or_insert_with(Vec::new)
                     .push(logprob);
                 if result.error {
+                    assert!(!result.correct);
+                    assert!(!result.correct_aligned);
+                    assert!(!result.correct_stripped);
                     model_logprob[LogprobType::Errors as usize]
                         .entry(model.clone())
                         .or_insert_with(Vec::new)
                         .push(logprob);
-                } else if result.correct {
+                }
+                if result.correct {
+                    assert!(!result.error);
+                    assert!(result.correct_aligned);
+                    assert!(result.correct_stripped);
                     model_logprob[LogprobType::Correct as usize]
                         .entry(model.clone())
                         .or_insert_with(Vec::new)
                         .push(logprob);
-                } else if result.correct_aligned {
+                }
+                if result.correct_aligned {
+                    assert!(!result.error);
+                    assert!(result.correct_aligned);
                     model_logprob[LogprobType::CorrectAligned as usize]
                         .entry(model.clone())
                         .or_insert_with(Vec::new)
                         .push(logprob);
-                } else if result.correct_stripped {
+                }
+                if result.correct_stripped {
+                    assert!(!result.error);
                     model_logprob[LogprobType::CorrectStripped as usize]
                         .entry(model.clone())
                         .or_insert_with(Vec::new)
                         .push(logprob);
                 } else {
+                    assert!(!result.error);
                     model_logprob[LogprobType::Incorrect as usize]
                         .entry(model.clone())
                         .or_insert_with(Vec::new)
@@ -280,6 +294,87 @@ impl Bench {
                     .unwrap_or(f64::INFINITY),
             ];
 
+            let std_logprob = [
+                model_logprob[LogprobType::Global as usize]
+                    .get(&model)
+                    .map(|logprob| {
+                        let avg = logprob.iter().map(|x| logprob_to_prob(*x)).sum::<f64>()
+                            / logprob.len() as f64;
+                        let variance = logprob
+                            .iter()
+                            .map(|x| (logprob_to_prob(*x) - avg).powi(2))
+                            .sum::<f64>()
+                            / logprob.len() as f64;
+                        variance.sqrt()
+                    })
+                    .unwrap_or(f64::INFINITY),
+                model_logprob[LogprobType::Errors as usize]
+                    .get(&model)
+                    .map(|logprob| {
+                        let avg = logprob.iter().map(|x| logprob_to_prob(*x)).sum::<f64>()
+                            / logprob.len() as f64;
+                        let variance = logprob
+                            .iter()
+                            .map(|x| (logprob_to_prob(*x) - avg).powi(2))
+                            .sum::<f64>()
+                            / logprob.len() as f64;
+                        variance.sqrt()
+                    })
+                    .unwrap_or(f64::INFINITY),
+                model_logprob[LogprobType::Incorrect as usize]
+                    .get(&model)
+                    .map(|logprob| {
+                        let avg = logprob.iter().map(|x| logprob_to_prob(*x)).sum::<f64>()
+                            / logprob.len() as f64;
+                        let variance = logprob
+                            .iter()
+                            .map(|x| (logprob_to_prob(*x) - avg).powi(2))
+                            .sum::<f64>()
+                            / logprob.len() as f64;
+                        variance.sqrt()
+                    })
+                    .unwrap_or(f64::INFINITY),
+                model_logprob[LogprobType::CorrectStripped as usize]
+                    .get(&model)
+                    .map(|logprob| {
+                        let avg = logprob.iter().map(|x| logprob_to_prob(*x)).sum::<f64>()
+                            / logprob.len() as f64;
+                        let variance = logprob
+                            .iter()
+                            .map(|x| (logprob_to_prob(*x) - avg).powi(2))
+                            .sum::<f64>()
+                            / logprob.len() as f64;
+                        variance.sqrt()
+                    })
+                    .unwrap_or(f64::INFINITY),
+                model_logprob[LogprobType::CorrectAligned as usize]
+                    .get(&model)
+                    .map(|logprob| {
+                        let avg = logprob.iter().map(|x| logprob_to_prob(*x)).sum::<f64>()
+                            / logprob.len() as f64;
+                        let variance = logprob
+                            .iter()
+                            .map(|x| (logprob_to_prob(*x) - avg).powi(2))
+                            .sum::<f64>()
+                            / logprob.len() as f64;
+                        variance.sqrt()
+                    })
+                    .unwrap_or(f64::INFINITY),
+                model_logprob[LogprobType::Correct as usize]
+                    .get(&model)
+                    .map(|logprob| {
+                        let avg = logprob.iter().map(|x| logprob_to_prob(*x)).sum::<f64>()
+                            / logprob.len() as f64;
+                        let variance = logprob
+                            .iter()
+                            .map(|x| (logprob_to_prob(*x) - avg).powi(2))
+                            .sum::<f64>()
+                            / logprob.len() as f64;
+                        variance.sqrt()
+                    })
+                    .unwrap_or(f64::INFINITY),
+            ];
+
             let avg_duration = model_durations
                 .get(&model)
                 .map(|durations| durations.iter().sum::<f64>() / durations.len() as f64)
@@ -299,6 +394,7 @@ impl Bench {
                     error_rate,
                     avg_tokens,
                     avg_logprob,
+                    std_logprob,
                     avg_duration,
                 },
             );
@@ -355,16 +451,21 @@ impl Bench {
                 println!("  Average duration: {:.2} s", stats.avg_duration);
             }
             let logprob_type_names = [
-                "Average logprob",
-                "Average logprob (errors)",
-                "Average logprob (incorrect)",
-                "Average logprob (stripped)",
-                "Average logprob (aligned)",
-                "Average logprob (correct)",
+                "Average prob",
+                "Average prob (errors)",
+                "Average prob (incorrect)",
+                "Average prob (stripped)",
+                "Average prob (aligned)",
+                "Average prob (correct)",
             ];
             for (i, &value) in stats.avg_logprob.iter().enumerate() {
                 if value.is_finite() {
-                    println!("  {}: {:.1}", logprob_type_names[i], logprob_to_prob(value));
+                    println!(
+                        "  {}: {:.1}% (+- {:.1})",
+                        logprob_type_names[i],
+                        logprob_to_prob(value),
+                        stats.std_logprob[i]
+                    );
                 }
             }
         }

@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
         man.render(&mut buffer)?;
 
         std::fs::write(
-            out_dir.join(vec![env!("CARGO_PKG_NAME"), ".1"].join("")),
+            out_dir.join([env!("CARGO_PKG_NAME"), ".1"].join("")),
             buffer,
         )?;
     }
