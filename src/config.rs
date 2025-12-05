@@ -34,7 +34,7 @@ pub struct EndpointConfig {
 }
 
 fn default_timeout() -> u64 {
-    600
+    600000
 }
 
 fn default_retries() -> u32 {

@@ -12,7 +12,7 @@ endpoints:
 
   - name: "llama.cpp vulkan"
     url: "http://localhost:8811/v1/chat/completions"
-    #timeout: 600
+    #timeout: 600000
     #retries: 10
     #delay: 1000
     #max_delay: 600000

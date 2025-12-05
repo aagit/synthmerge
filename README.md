@@ -103,7 +103,7 @@ endpoints:
   - name: "Patchpal AI"
     type: "patchpal"
     url: "http://patchpal.usersys.redhat.com:9080/v1"
-    #timeout: 600
+    #timeout: 600000
     #retries: 10
     #delay: 1000
     #max_delay: 600000
