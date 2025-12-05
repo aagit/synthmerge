@@ -231,10 +231,12 @@ This measurement used only new test data never exposed to the model during the f
 
 ```
 Model: Claude Sonnet 4.0 (default)
-  Accuracy: 66.52% (751/1129)
-  Accuracy (aligned): 69.71% (787/1129)
-  Accuracy (stripped): 72.63% (820/1129)
-  Error Rate: 0.09% (1/1129)
+  Accuracy: 66.87% (755/1129)
+  Accuracy (aligned): 70.15% (792/1129)
+  Accuracy (stripped): 72.98% (824/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5730.43
+  Average duration: 7.26 s
 
 # only the Beam 0 is comparable to the non Patchpal models
 Model: Patchpal AI #0
@@ -244,10 +246,12 @@ Model: Patchpal AI #0
   Error Rate: 0.44% (5/1129) # might be duplicate with other beams
 
 Model: Claude Sonnet 4.0 (no_diff)
-  Accuracy: 64.30% (726/1129)
-  Accuracy (aligned): 67.40% (761/1129)
-  Accuracy (stripped): 70.24% (793/1129)
-  Error Rate: 0.53% (6/1129)
+  Accuracy: 64.48% (728/1129)
+  Accuracy (aligned): 67.58% (763/1129)
+  Accuracy (stripped): 70.33% (794/1129)
+  Error Rate: 0.35% (4/1129)
+  Average tokens: 1179.90
+  Average duration: 6.24 s
 
 Model: Gemini 2.5 pro (high) # reasoning_effort: high
   Accuracy: 55.18% (623/1129)
