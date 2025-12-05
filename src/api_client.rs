@@ -26,6 +26,7 @@ pub struct ApiResponseEntry {
     pub response: String,
     pub logprob: Option<f64>,
     pub total_tokens: Option<u64>,
+    pub duration: f64,
 }
 
 macro_rules! get_context_field {
@@ -182,7 +183,7 @@ impl ApiClient {
                     &request.endpoint.url,
                     headers.clone(),
                     &payload,
-                    |response_text: &str| -> Result<ApiResponseEntry> {
+                    |response_text: &str, duration: f64| -> Result<ApiResponseEntry> {
                         // Parse JSON response to extract the content
                         let json_response: serde_json::Value = serde_json::from_str(response_text)
                             .with_context(|| {
@@ -221,6 +222,7 @@ impl ApiClient {
                             response: content.to_string(),
                             logprob,
                             total_tokens,
+                            duration,
                         })
                     },
                 )
@@ -271,7 +273,7 @@ impl ApiClient {
                     &request.endpoint.url,
                     headers.clone(),
                     &payload,
-                    |response_text: &str| -> Result<ApiResponseEntry> {
+                    |response_text: &str, duration: f64| -> Result<ApiResponseEntry> {
                         // Parse JSON response to extract the content
                         let json_response: serde_json::Value = serde_json::from_str(response_text)
                             .with_context(|| {
@@ -321,6 +323,7 @@ impl ApiClient {
                             response: content.to_string(),
                             logprob,
                             total_tokens,
+                            duration,
                         })
                     },
                 )
@@ -399,7 +402,7 @@ impl ApiClient {
 					 "params" : {"patch" : request.patch,
 						     "code" : request.code}});
 
-        let response_handler = |response_text: &str| -> Result<ApiResponse> {
+        let response_handler = |response_text: &str, duration: f64| -> Result<ApiResponse> {
             // Try to parse as JSON and extract content
             let json_response: serde_json::Value = serde_json::from_str(response_text)
                 .with_context(|| {
@@ -438,6 +441,7 @@ impl ApiClient {
                         ),
                         logprob: s.1.ok(),
                         total_tokens: None,
+                        duration,
                     })
                 })
                 .collect();
@@ -463,8 +467,9 @@ impl ApiClient {
         response_handler: F,
     ) -> Result<R>
     where
-        F: Fn(&str) -> Result<R>,
+        F: Fn(&str, f64) -> Result<R>,
     {
+        let start = std::time::Instant::now();
         let mut last_error = None;
         let mut delay = Duration::from_millis(self.endpoint.delay);
         let max_delay = Duration::from_millis(self.endpoint.max_delay);
@@ -494,6 +499,7 @@ impl ApiClient {
                             continue;
                         }
                     };
+                    let duration = start.elapsed().as_secs_f64();
                     log::trace!(
                         "Response JSON ({}):\n{}",
                         self.endpoint.name,
@@ -504,7 +510,7 @@ impl ApiClient {
                         .unwrap_or(response_text.clone())
                     );
 
-                    match response_handler(&response_text) {
+                    match response_handler(&response_text, duration) {
                         Ok(api_response) => {
                             self.apply_wait().await;
                             return Ok(api_response);

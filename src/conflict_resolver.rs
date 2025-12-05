@@ -175,10 +175,8 @@ impl<'a> ConflictResolver<'a> {
                     git_diff: git_diff.clone(),
                 };
                 let handle = tokio::spawn(async move {
-                    let start = std::time::Instant::now();
                     let result = client.query(&api_request).await;
-                    let duration = start.elapsed();
-                    (result, duration, name, endpoint_index)
+                    (result, name, endpoint_index)
                 });
                 futures.push(handle);
             }
@@ -188,28 +186,10 @@ impl<'a> ConflictResolver<'a> {
                 let (result, _, remaining) = select_all(futures).await;
                 futures = remaining;
                 match result {
-                    Ok((result, duration, name, endpoint_index)) => {
-                        let duration = duration.as_secs_f64();
-                        let total_tokens: Option<u64> = result
-                            .as_ref()
-                            .map(|r| {
-                                let sum: u64 = r
-                                    .iter()
-                                    .filter_map(|entry| {
-                                        entry.as_ref().ok().and_then(|e| e.total_tokens)
-                                    })
-                                    .sum();
-                                Some(sum)
-                            })
-                            .unwrap_or(None);
-                        let tokens_per_sec_info = total_tokens
-                            .map(|tokens| format!(" {:.1} t/s", tokens as f64 / duration))
-                            .unwrap_or_default();
+                    Ok((result, name, endpoint_index)) => {
                         println!(
-                            " - {} {:.1} s{}{}",
+                            " - {}{}",
                             name,
-                            duration,
-                            tokens_per_sec_info,
                             result
                                 .as_ref()
                                 .map(|r| {
@@ -219,11 +199,25 @@ impl<'a> ConflictResolver<'a> {
                                             self.get_variant_name(endpoints, endpoint_index, y);
                                         if let Ok(entry) = entry {
                                             let variant_name = variant_name
-                                                .map(|x| format!(" | {x}:"))
+                                                .map(|x| format!(" | {x}"))
                                                 .unwrap_or_default();
+                                            let duration_info = format!(" {:.1}s", entry.duration);
                                             let tokens_info = entry
                                                 .total_tokens
                                                 .map(|tokens| format!(" {} t", tokens))
+                                                .unwrap_or_default();
+                                            let tokens_per_sec_info = entry
+                                                .total_tokens
+                                                .map(|tokens| {
+                                                    if entry.duration > 0.0 {
+                                                        format!(
+                                                            " {:.0} t/s",
+                                                            tokens as f64 / entry.duration
+                                                        )
+                                                    } else {
+                                                        String::new()
+                                                    }
+                                                })
                                                 .unwrap_or_default();
                                             let logprob_info = entry
                                                 .logprob
@@ -235,8 +229,12 @@ impl<'a> ConflictResolver<'a> {
                                                 })
                                                 .unwrap_or_default();
                                             info.push_str(&format!(
-                                                "{}{}{}",
-                                                variant_name, tokens_info, logprob_info
+                                                "{}{}{}{}{}",
+                                                variant_name,
+                                                duration_info,
+                                                tokens_info,
+                                                tokens_per_sec_info,
+                                                logprob_info,
                                             ));
                                         }
                                     }
@@ -244,7 +242,7 @@ impl<'a> ConflictResolver<'a> {
                                 })
                                 .unwrap_or_default()
                         );
-                        results.push((result, duration, endpoint_index))
+                        results.push((result, endpoint_index))
                     }
                     Err(e) => return Err(anyhow::anyhow!("Task failed: {}", e)),
                 }
@@ -331,14 +329,13 @@ impl<'a> ConflictResolver<'a> {
         &self,
         resolved_conflicts: &mut Vec<ResolvedConflict>,
         resolver_errors: &mut ResolverErrors,
-        results: &Vec<(Result<ApiResponse>, f64, usize)>,
+        results: &Vec<(Result<ApiResponse>, usize)>,
         conflict: &Conflict,
         endpoints: &[EndpointConfig],
     ) {
         // Validate that the content starts with head_context and ends with tail_context
         for result in results {
-            let endpoint_index = result.2;
-            let duration = result.1;
+            let endpoint_index = result.1;
             let result = match &result.0 {
                 Ok(r) => r,
                 Err(e) => {
@@ -430,6 +427,7 @@ impl<'a> ConflictResolver<'a> {
 
                     let total_tokens = api_response_entry.total_tokens;
                     let logprob = api_response_entry.logprob;
+                    let duration = api_response_entry.duration;
                     resolved_conflicts.push(ResolvedConflict {
                         conflict: conflict.clone(),
                         resolved_version: resolved_content,
