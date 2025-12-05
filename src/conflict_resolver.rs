@@ -43,6 +43,7 @@ pub struct ConflictResolver<'a> {
     config: &'a Config,
     git_diff: Option<String>,
     training: String,
+    bench: bool,
 }
 
 impl<'a> ConflictResolver<'a> {
@@ -54,12 +55,18 @@ impl<'a> ConflictResolver<'a> {
     const CODE_END: &'static str = "<|/code|>";
     pub const PATCHED_CODE_START: &'static str = "<|patched_code|>";
     pub const PATCHED_CODE_END: &'static str = "<|/patched_code|>";
-    pub fn new(context_lines: ContextLines, config: &'a Config, git_diff: Option<String>) -> Self {
+    pub fn new(
+        context_lines: ContextLines,
+        config: &'a Config,
+        git_diff: Option<String>,
+        bench: bool,
+    ) -> Self {
         ConflictResolver {
             context_lines,
             config,
             git_diff: Self::__git_diff(git_diff),
             training: Self::create_training(),
+            bench,
         }
     }
 
@@ -76,15 +83,17 @@ impl<'a> ConflictResolver<'a> {
         };
 
         for (conflict_index, conflict) in conflicts.iter().enumerate() {
-            let conflict_info = format!(
-                "Resolving conflict {} of {} in {}:{}",
-                conflict_index + 1,
-                conflicts.len(),
-                conflict.file_path,
-                conflict.start_line
-            );
-            println!("{}", conflict_info);
-            log::info!("{}", conflict_info);
+            if !self.bench {
+                let conflict_info = format!(
+                    "Resolving conflict {} of {} in {}:{}",
+                    conflict_index + 1,
+                    conflicts.len(),
+                    conflict.file_path,
+                    conflict.start_line
+                );
+                println!("{}", conflict_info);
+                log::info!("{}", conflict_info);
+            }
 
             // Create the prompt for AI resolution
             let prompt = self.create_prompt(conflict);
