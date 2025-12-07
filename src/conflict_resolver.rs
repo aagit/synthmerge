@@ -131,57 +131,7 @@ impl<'a> ConflictResolver<'a> {
                         println!(
                             " - {}{}",
                             name,
-                            result
-                                .as_ref()
-                                .map(|r| {
-                                    let mut info = String::new();
-                                    for (y, entry) in r.iter().enumerate() {
-                                        let variant_name =
-                                            self.get_variant_name(endpoints, endpoint_index, y);
-                                        if let Ok(entry) = entry {
-                                            let variant_name = variant_name
-                                                .map(|x| format!(" | {x}"))
-                                                .unwrap_or_default();
-                                            let duration_info = format!(" {:.1}s", entry.duration);
-                                            let tokens_info = entry
-                                                .total_tokens
-                                                .map(|tokens| format!(" {} t", tokens))
-                                                .unwrap_or_default();
-                                            let tokens_per_sec_info = entry
-                                                .total_tokens
-                                                .map(|tokens| {
-                                                    if entry.duration > 0.0 {
-                                                        format!(
-                                                            " {:.0} t/s",
-                                                            tokens as f64 / entry.duration
-                                                        )
-                                                    } else {
-                                                        String::new()
-                                                    }
-                                                })
-                                                .unwrap_or_default();
-                                            let logprob_info = entry
-                                                .logprob
-                                                .map(|logprob| {
-                                                    format!(
-                                                        " {:.1}%",
-                                                        prob::logprob_to_prob(logprob)
-                                                    )
-                                                })
-                                                .unwrap_or_default();
-                                            info.push_str(&format!(
-                                                "{}{}{}{}{}",
-                                                variant_name,
-                                                duration_info,
-                                                tokens_info,
-                                                tokens_per_sec_info,
-                                                logprob_info,
-                                            ));
-                                        }
-                                    }
-                                    info
-                                })
-                                .unwrap_or_default()
+                            self.print_api_response(&result, endpoints, endpoint_index)
                         );
                         results.push((result, endpoint_index))
                     }
@@ -201,68 +151,122 @@ impl<'a> ConflictResolver<'a> {
         Ok((resolved_conflicts, resolver_errors))
     }
 
-    fn get_model_name_z(
+    fn print_api_response(
         &self,
+        api_response: &Result<ApiResponse>,
         endpoints: &[EndpointConfig],
-        i: usize,
-        y: usize,
-        z: usize,
-        dups: usize,
+        endpoint_index: usize,
     ) -> String {
-        let endpoint = &endpoints[i];
-        let variant_name = match &endpoint.config {
-            EndpointTypeConfig::OpenAI { variants, .. }
-            | EndpointTypeConfig::Anthropic { variants, .. } => {
-                if let Some(variants) = variants {
-                    if let Some(variant) = variants.get(y) {
-                        match variant.name.as_deref() {
-                            Some(variant) => format!("{} ({})", endpoint.name, variant),
-                            None => endpoint.name.clone(),
+        api_response
+            .as_ref()
+            .map(|r| {
+                let mut info = String::new();
+                for (variant, variants) in r.iter().enumerate() {
+                    self.get_variant_name(endpoints, endpoint_index, variant)
+                        .map(|x| info.push_str(&format!(" | {x}")));
+                    for (beam, entry) in variants.iter().enumerate() {
+                        if let Ok(entry) = entry {
+                            let beam = if variants.len() > 1 {
+                                format!(" ~ #{beam}")
+                            } else {
+                                String::new()
+                            };
+                            let duration_info = format!(" {:.1}s", entry.duration);
+                            let tokens_info = entry
+                                .total_tokens
+                                .map(|tokens| format!(" {} t", tokens))
+                                .unwrap_or_default();
+                            let tokens_per_sec_info = entry
+                                .total_tokens
+                                .map(|tokens| {
+                                    if entry.duration > 0.0 {
+                                        format!(" {:.0} t/s", tokens as f64 / entry.duration)
+                                    } else {
+                                        String::new()
+                                    }
+                                })
+                                .unwrap_or_default();
+                            let logprob_info = entry
+                                .logprob
+                                .map(|logprob| format!(" {:.1}%", prob::logprob_to_prob(logprob)))
+                                .unwrap_or_default();
+                            info.push_str(&format!(
+                                "{}{}{}{}{}",
+                                beam, duration_info, tokens_info, tokens_per_sec_info, logprob_info,
+                            ));
                         }
-                    } else {
-                        assert!(y == 0); // When we have variants, we expect to be able to index into them
-                        endpoint.name.clone()
                     }
-                } else {
-                    // No variants defined, use endpoint name directly
-                    endpoint.name.clone()
                 }
-            }
-            EndpointTypeConfig::Patchpal { .. } => {
-                format!("{} #{}", endpoint.name, y)
-            }
-        };
-        if z > 0 {
-            format!("{} #{}", variant_name, z + 1 - dups)
-        } else {
-            variant_name
-        }
+                info
+            })
+            .unwrap_or_default()
     }
 
-    fn get_model_name(&self, endpoints: &[EndpointConfig], i: usize, y: usize) -> String {
-        self.get_model_name_z(endpoints, i, y, 0, 0)
+    fn get_model_name_multi(
+        &self,
+        endpoints: &[EndpointConfig],
+        endpoint: usize,
+        variant: usize,
+        beam: Option<usize>,
+        multi: usize,
+    ) -> String {
+        let variant_name = self.get_variant_name(endpoints, endpoint, variant);
+        let mut name = endpoints[endpoint].name.to_string();
+        let mut open = false;
+        if let Some(variant_name) = *variant_name {
+            open = true;
+            name.push_str(" (");
+            name.push_str(&variant_name);
+        }
+        if let Some(beam) = beam {
+            if !open {
+                open = true;
+                name.push_str(" (");
+            }
+            name.push_str(&format!("#{}", beam));
+        }
+        if multi > 0 {
+            if !open {
+                open = true;
+                name.push_str(" (");
+            }
+            name.push_str(&format!("${}", multi));
+        }
+        if open {
+            name.push(')');
+        }
+        name
+    }
+
+    fn get_model_name(
+        &self,
+        endpoints: &[EndpointConfig],
+        endpoint: usize,
+        variant: usize,
+    ) -> String {
+        self.get_model_name_multi(endpoints, endpoint, variant, None, 0)
     }
 
     fn get_variant_name(
         &self,
         endpoints: &[EndpointConfig],
-        i: usize,
-        y: usize,
+        endpoint: usize,
+        variant: usize,
     ) -> Box<Option<String>> {
-        let endpoint = &endpoints[i];
+        let endpoint = &endpoints[endpoint];
         match &endpoint.config {
             EndpointTypeConfig::OpenAI { variants, .. }
             | EndpointTypeConfig::Anthropic { variants, .. } => {
                 if let Some(variants) = variants {
-                    if let Some(variant) = variants.get(y) {
+                    if let Some(variant) = variants.get(variant) {
                         return variant.name.clone();
                     } else {
-                        assert!(y == 0);
+                        assert!(variant == 0);
                     }
                 }
                 Box::new(None)
             }
-            EndpointTypeConfig::Patchpal { .. } => Box::new(Some(format!("#{}", y))),
+            EndpointTypeConfig::Patchpal { .. } => Box::new(None),
         }
     }
 
@@ -276,107 +280,115 @@ impl<'a> ConflictResolver<'a> {
     ) {
         // Validate that the content starts with head_context and ends with tail_context
         for result in results {
-            let endpoint_index = result.1;
+            let endpoint = result.1;
             let result = match &result.0 {
                 Ok(r) => r,
                 Err(e) => {
-                    log::warn!(
-                        "Skipping {} due to error: {}",
-                        endpoints[endpoint_index].name,
-                        e
-                    );
+                    log::warn!("Skipping {} due to error: {}", endpoints[endpoint].name, e);
                     continue;
                 }
             };
 
-            for (y, api_response_entry) in result.iter().enumerate() {
-                let api_response_entry = match api_response_entry {
-                    Ok(api_response_entry) => api_response_entry,
-                    Err(e) => {
-                        let model = self.get_model_name(endpoints, endpoint_index, y);
-                        log::warn!("Skipping {} - {}", model, e);
-                        *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                        continue;
-                    }
-                };
+            for (variant, api_response_variant) in result.iter().enumerate() {
+                for (beam, api_response_entry) in api_response_variant.iter().enumerate() {
+                    let api_response_entry = match api_response_entry {
+                        Ok(api_response_entry) => api_response_entry,
+                        Err(e) => {
+                            let model = self.get_model_name(endpoints, endpoint, variant);
+                            log::warn!("Skipping {} - {}", model, e);
+                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            continue;
+                        }
+                    };
 
-                let resolved_strings = match self.parse_response(&api_response_entry.response) {
-                    Ok(resolved_strings) => resolved_strings,
-                    Err(e) => {
-                        let model = self.get_model_name(endpoints, endpoint_index, y);
-                        log::warn!("Skipping {} - {}", model, e);
-                        *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                        continue;
-                    }
-                };
-                assert!(!resolved_strings.is_empty());
-                assert!(!api_response_entry.response.is_empty());
+                    let resolved_strings = match self.parse_response(&api_response_entry.response) {
+                        Ok(resolved_strings) => resolved_strings,
+                        Err(e) => {
+                            let model = self.get_model_name(endpoints, endpoint, variant);
+                            log::warn!("Skipping {} - {}", model, e);
+                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            continue;
+                        }
+                    };
+                    assert!(!resolved_strings.is_empty());
+                    assert!(!api_response_entry.response.is_empty());
 
-                let mut dups = 0;
-                let mut seen_resolved = std::collections::HashMap::new();
-                for (z, resolved_string) in resolved_strings.iter().enumerate() {
-                    let model = self.get_model_name_z(endpoints, endpoint_index, y, z, dups);
-                    if !resolved_string.starts_with(&conflict.head_context) {
-                        log::warn!("Skipping {} - doesn't start with head context", model);
-                        let len = conflict.head_context.len().min(resolved_string.len());
-                        let diff = ConflictResolver::create_diff(
-                            &conflict.head_context,
-                            &resolved_string[..len],
-                            1,
+                    let mut seen_resolved = std::collections::HashMap::new();
+                    for (multi, resolved_string) in resolved_strings.iter().enumerate() {
+                        let model = self.get_model_name_multi(
+                            endpoints,
+                            endpoint,
+                            variant,
+                            {
+                                if api_response_variant.len() > 1 {
+                                    Some(beam)
+                                } else {
+                                    None
+                                }
+                            },
+                            multi,
                         );
-                        log::trace!("HeadContextDiff:\n{}", diff);
-                        *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                        if !resolved_string.starts_with(&conflict.head_context) {
+                            log::warn!("Skipping {} - doesn't start with head context", model);
+                            let len = conflict.head_context.len().min(resolved_string.len());
+                            let diff = ConflictResolver::create_diff(
+                                &conflict.head_context,
+                                &resolved_string[..len],
+                                1,
+                            );
+                            log::trace!("HeadContextDiff:\n{}", diff);
+                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
 
-                        continue;
-                    }
-                    let leading_tail_context = &format!("\n{}", &conflict.tail_context);
-                    if !resolved_string.ends_with(leading_tail_context) {
-                        log::warn!("Skipping {} - doesn't end with tail context", model);
-                        let diff = ConflictResolver::create_diff(
-                            &resolved_string[resolved_string
-                                .len()
-                                .saturating_sub(leading_tail_context.len())
-                                .max(0)..],
-                            leading_tail_context,
-                            1,
-                        );
-                        log::trace!("TailContextDiff:\n{}", diff);
-                        *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                        continue;
-                    }
-                    //reduce resolved to the range between head_context and tail_context
-                    let resolved_content = resolved_string[conflict.head_context.len()
-                        ..resolved_string.len() - conflict.tail_context.len()]
-                        .to_string();
-                    if !resolved_content.is_empty() && !resolved_content.ends_with('\n') {
-                        log::error!(
-                            "Skipping {} - resolved content is not newline terminated",
-                            model
-                        );
-                        log::trace!("ResolvedContent:\n{}", resolved_content);
-                        *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                        continue;
-                    }
-                    // Check if this resolved_content is already in the results
-                    let key = (endpoint_index, resolved_content.clone());
-                    if seen_resolved.contains_key(&key) {
-                        log::debug!("Skipping {} - duplicate resolved conflict", model);
-                        dups += 1;
-                        continue;
-                    }
-                    seen_resolved.insert(key, model.clone());
+                            continue;
+                        }
+                        let leading_tail_context = &format!("\n{}", &conflict.tail_context);
+                        if !resolved_string.ends_with(leading_tail_context) {
+                            log::warn!("Skipping {} - doesn't end with tail context", model);
+                            let diff = ConflictResolver::create_diff(
+                                &resolved_string[resolved_string
+                                    .len()
+                                    .saturating_sub(leading_tail_context.len())
+                                    .max(0)..],
+                                leading_tail_context,
+                                1,
+                            );
+                            log::trace!("TailContextDiff:\n{}", diff);
+                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            continue;
+                        }
+                        //reduce resolved to the range between head_context and tail_context
+                        let resolved_content = resolved_string[conflict.head_context.len()
+                            ..resolved_string.len() - conflict.tail_context.len()]
+                            .to_string();
+                        if !resolved_content.is_empty() && !resolved_content.ends_with('\n') {
+                            log::error!(
+                                "Skipping {} - resolved content is not newline terminated",
+                                model
+                            );
+                            log::trace!("ResolvedContent:\n{}", resolved_content);
+                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            continue;
+                        }
+                        // Check if this resolved_content is already in the results
+                        let key = (endpoint, resolved_content.clone());
+                        if seen_resolved.contains_key(&key) {
+                            log::debug!("Skipping {} - duplicate resolved conflict", model);
+                            continue;
+                        }
+                        seen_resolved.insert(key, model.clone());
 
-                    let total_tokens = api_response_entry.total_tokens;
-                    let logprob = api_response_entry.logprob;
-                    let duration = api_response_entry.duration;
-                    resolved_conflicts.push(ResolvedConflict {
-                        conflict: conflict.clone(),
-                        resolved_version: resolved_content,
-                        model,
-                        duration,
-                        total_tokens,
-                        logprob,
-                    });
+                        let total_tokens = api_response_entry.total_tokens;
+                        let logprob = api_response_entry.logprob;
+                        let duration = api_response_entry.duration;
+                        resolved_conflicts.push(ResolvedConflict {
+                            conflict: conflict.clone(),
+                            resolved_version: resolved_content,
+                            model,
+                            duration,
+                            total_tokens,
+                            logprob,
+                        });
+                    }
                 }
             }
         }

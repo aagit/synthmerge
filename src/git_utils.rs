@@ -579,12 +579,14 @@ impl GitUtils {
     fn combine_model_names(group: &[&ResolvedConflict]) -> String {
         use std::collections::HashMap;
         let mut suffix_map: HashMap<String, Vec<String>> = HashMap::new();
+        let mut prefixes = Vec::new();
 
         // Group models by their prefix (everything before the last '(')
         for conflict in group {
             let model_name = &conflict.model;
             if let Some(pos) = model_name.rfind('(') {
                 let prefix = &model_name[..pos];
+                let prefix = prefix.trim();
                 let suffix_start = pos + 1;
                 if let Some(suffix_end) = model_name[suffix_start..].find(')') {
                     let suffix = &model_name[suffix_start..suffix_start + suffix_end];
@@ -596,6 +598,7 @@ impl GitUtils {
                         prefix
                     );
                     entry.push(suffix.to_string());
+                    prefixes.push(prefix);
                 } else {
                     // No closing parenthesis, treat as regular name
                     let entry = suffix_map.entry(model_name.clone()).or_default();
@@ -605,6 +608,7 @@ impl GitUtils {
                         model_name
                     );
                     entry.push("".to_string());
+                    prefixes.push(prefix);
                 }
             } else {
                 // No parentheses, treat as regular name
@@ -615,23 +619,25 @@ impl GitUtils {
                     model_name
                 );
                 entry.push("".to_string());
+                prefixes.push(model_name);
             }
         }
-        let mut combined_names = Vec::new();
 
-        for (prefix, suffixes) in suffix_map {
-            if suffixes.iter().any(|s| s.is_empty()) {
-                // If any model has no suffix, include all models as is
-                combined_names.push(prefix);
+        let mut combined_names = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for prefix in prefixes {
+            if !seen.insert(prefix) {
+                continue;
+            };
+            let suffixes = suffix_map.get(prefix).unwrap();
+            assert!(!suffixes.is_empty());
+            assert!(suffixes.iter().filter(|x| x.is_empty()).count() <= 1);
+            if suffixes.len() == 1 && suffixes[0].is_empty() {
+                combined_names.push(prefix.to_string());
             } else {
                 // Combine suffixes into a single string like "(suffix1|suffix2|suffix3)"
-                let unique_suffixes: std::collections::HashSet<_> = suffixes.into_iter().collect();
-                let suffixes_str = unique_suffixes
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("|");
-                combined_names.push(format!("{}({})", prefix, suffixes_str));
+                let suffixes_str = suffixes.to_vec().join("|");
+                combined_names.push(format!("{} ({})", prefix, suffixes_str));
             }
         }
 

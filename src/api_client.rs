@@ -36,7 +36,7 @@ macro_rules! get_context_field {
     }};
 }
 
-pub type ApiResponse = Vec<Result<ApiResponseEntry>>;
+pub type ApiResponse = Vec<Vec<Result<ApiResponseEntry>>>;
 
 pub struct ApiClient {
     endpoint: EndpointConfig,
@@ -225,7 +225,7 @@ impl ApiClient {
                     })?;
 
                 let logprob = if perplexity_search.is_some() {
-                    Some(-1.)
+                    None
                 } else {
                     prob::logprob(&json_response, perplexity)
                 };
@@ -280,30 +280,7 @@ impl ApiClient {
                     break;
                 }
             }
-            if variant_responses.len() > 1 {
-                let first = &variant_responses[0].as_ref().unwrap();
-                let mut response = first.response.clone();
-                let mut duration = first.duration;
-                let mut total_tokens = first.total_tokens;
-                for other in variant_responses.iter().skip(1).flatten() {
-                    response.push('\n');
-                    response.push_str(&other.response);
-                    duration += other.duration;
-                    if let (Some(tokens), Some(other_tokens)) = (total_tokens, other.total_tokens) {
-                        total_tokens = Some(tokens + other_tokens);
-                    } else {
-                        total_tokens = None;
-                    }
-                }
-                responses.push(Ok(ApiResponseEntry {
-                    response,
-                    total_tokens,
-                    duration,
-                    logprob: first.logprob,
-                }));
-            } else {
-                responses.extend(variant_responses)
-            }
+            responses.push(variant_responses)
         }
 
         Ok(responses)
@@ -411,10 +388,10 @@ impl ApiClient {
         let mut responses = Vec::new();
 
         for variant in variants_list {
-            responses.push(
+            responses.push(vec![
                 self.query_anthropic_variant(request, variant, &headers)
                     .await,
-            );
+            ]);
         }
 
         Ok(responses)
@@ -538,7 +515,7 @@ impl ApiClient {
                     );
                 }
 
-                Ok(responses)
+                Ok(vec![responses])
             };
 
         self.retry_request(&self.endpoint.url, headers, &payload, response_handler)
