@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
-use crate::bench_args::Args;
+use crate::bench_args::BenchArgs;
 use crate::config::{Config, EndpointTypeConfig};
 use crate::conflict_resolver::{Conflict, ConflictResolver};
 use crate::git_utils::{ContextLines, GitUtils};
@@ -130,7 +130,7 @@ impl Bench {
         Ok(entries)
     }
 
-    fn save_checkpoint(&mut self, args: &Args) -> Result<()> {
+    fn save_checkpoint(&mut self, args: &BenchArgs) -> Result<()> {
         let file = File::create(&args.checkpoint_path)?;
         let mut writer = csv::Writer::from_writer(file);
         for result in &self.results {
@@ -141,7 +141,7 @@ impl Bench {
         Ok(())
     }
 
-    fn load_checkpoint(&mut self, args: &Args) -> Result<()> {
+    fn load_checkpoint(&mut self, args: &BenchArgs) -> Result<()> {
         if !Path::new(&args.checkpoint_path).exists() {
             return Ok(());
         }
@@ -159,7 +159,7 @@ impl Bench {
         Ok(())
     }
 
-    fn calculate_stats(&mut self, args: &Args) {
+    fn calculate_stats(&mut self, args: &BenchArgs) {
         // Initialize stats for all models
         let mut model_totals = HashMap::new();
         let mut model_correct = HashMap::new();
@@ -475,7 +475,7 @@ impl Bench {
         &mut self,
         config: &Config,
         entries: &[TestEntry],
-        args: Args,
+        args: BenchArgs,
     ) -> Result<()> {
         println!("Running statistics test on {} entries", entries.len());
 

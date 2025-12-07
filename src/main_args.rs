@@ -1,4 +1,5 @@
-use clap::Parser;
+// SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
+// Copyright (C) 2025  Red Hat, Inc.
 
 #[derive(Parser, Debug)]
 #[command(version)]
@@ -23,3 +24,7 @@ struct Args {
     #[arg(long = "patch-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
     patch_context_lines: u32,
 }
+
+// Local Variables:
+// rust-format-on-save: t
+// End:

@@ -5,6 +5,7 @@ use crate::config::Config;
 use crate::conflict_resolver::ConflictResolver;
 use crate::git_utils::{ContextLines, GitUtils};
 use anyhow::Result;
+use clap::Parser;
 
 mod api_client;
 mod config;

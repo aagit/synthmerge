@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
+// Copyright (C) 2025  Red Hat, Inc.
+
 use std::env;
 
+include!("src/bench_args.rs");
 include!("src/main_args.rs");
 
 fn main() -> std::io::Result<()> {
@@ -13,17 +17,17 @@ fn main() -> std::io::Result<()> {
         std::fs::create_dir_all(&out_dir)?;
 
         use clap::CommandFactory;
-        let cmd = Args::command();
+        for cmd in [(Args::command(), ""), (BenchArgs::command(), "_bench")] {
+            use clap_mangen::Man;
+            let man = Man::new(cmd.0);
+            let mut buffer: Vec<u8> = Default::default();
+            man.render(&mut buffer)?;
 
-        use clap_mangen::Man;
-        let man = Man::new(cmd);
-        let mut buffer: Vec<u8> = Default::default();
-        man.render(&mut buffer)?;
-
-        std::fs::write(
-            out_dir.join([env!("CARGO_PKG_NAME"), ".1"].join("")),
-            buffer,
-        )?;
+            std::fs::write(
+                out_dir.join([env!("CARGO_PKG_NAME"), cmd.1, ".1"].join("")),
+                buffer,
+            )?;
+        }
     }
 
     Ok(())

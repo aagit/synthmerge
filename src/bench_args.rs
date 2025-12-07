@@ -5,7 +5,7 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(version)]
-pub struct Args {
+pub struct BenchArgs {
     /// Path to configuration file
     #[arg(
         short = 'c',

@@ -4,14 +4,14 @@
 use anyhow::Result;
 use clap::Parser;
 use synthmerge::bench::Bench;
-use synthmerge::bench_args::Args;
+use synthmerge::bench_args::BenchArgs;
 use synthmerge::config::Config;
 use synthmerge::logger::log_init;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     log_init();
-    let args = Args::parse();
+    let args = BenchArgs::parse();
 
     // Load configuration
     let config_path = std::fs::canonicalize(shellexpand::full(&args.config_path)?.as_ref())?;
