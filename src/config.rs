@@ -268,7 +268,7 @@ impl Config {
                 // Check for duplicate keys between endpoint.json and variant.json
                 if let Some(variant_json) = &variant.json {
                     for key in variant_json.json.keys() {
-                        if !seen_keys.insert(key) {
+                        if seen_keys.contains(key) {
                             return Err(anyhow::anyhow!(
                                 "Endpoint {} in config file {} has duplicate key '{}' in variant {} at index {}",
                                 endpoint_index,
