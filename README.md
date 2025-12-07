@@ -146,20 +146,28 @@ endpoints:
     type: "patchpal"
     url: "http://patchpal.usersys.redhat.com:9080/v1"
 
-  - name: "Gemini 3 pro preview"
+  - name: "Gemini 2.5 Flash"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     type: "openai"
-    api_key_file: "~/.gemini.api-key"
+    api_key_file: "~/.keys/gemini.api-key"
     json:
-      model: "gemini-3-pro-preview"
-      reasoning_effort: "low"
+      model: "gemini-2.5-flash"
+      reasoning_effort: "none"
 
-  - name: "Gemini 2.5 pro"
+  - name: "Gemini 2.5 Pro"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     type: "openai"
-    api_key_file: "~/.gemini.api-key"
+    api_key_file: "~/.keys/gemini.api-key"
     json:
       model: "gemini-2.5-pro"
+      reasoning_effort: "low"
+
+  - name: "Gemini 3 Pro preview"
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    type: "openai"
+    api_key_file: "~/.keys/gemini.api-key"
+    json:
+      model: "gemini-3-pro-preview"
       reasoning_effort: "low"
 
   - name: "llama.cpp vulkan minimal" # requires --no-jinja
@@ -245,7 +253,7 @@ The following statistics were generated using the `synthmerge_bench` tool on a C
 This measurement used only new test data never exposed to the model during the fine tuning process.
 
 ```
-Claude Sonnet 4.5 and Gemini 3 pro preview not done yet.
+Claude Sonnet 4.5 and Gemini 3 Pro preview not done yet.
 
 Model: Claude Sonnet 4.0 (default)
   Accuracy: 66.70% (753/1129)
@@ -255,13 +263,6 @@ Model: Claude Sonnet 4.0 (default)
   Average tokens: 5730.47
   Average duration: 7.03 s
 
-# only the Beam 0 is comparable to the non Patchpal models
-Model: Patchpal AI #0
-  Accuracy: 64.57% (729/1129)
-  Accuracy (aligned): 68.47% (773/1129) # might be duplicate with other beams
-  Accuracy (stripped): 71.12% (803/1129) # might be duplicate with other beams
-  Error Rate: 0.44% (5/1129) # might be duplicate with other beams
-
 Model: Claude Sonnet 4.0 (no_diff)
   Accuracy: 65.19% (736/1129)
   Accuracy (aligned): 68.29% (771/1129)
@@ -270,19 +271,26 @@ Model: Claude Sonnet 4.0 (no_diff)
   Average tokens: 1184.14
   Average duration: 6.34 s
 
-Model: Gemini 2.5 pro (high) # reasoning_effort: high
+# only the Beam 0 is comparable to the non Patchpal models
+Model: Patchpal AI #0
+  Accuracy: 64.57% (729/1129)
+  Accuracy (aligned): 68.47% (773/1129) # might be duplicate with other beams
+  Accuracy (stripped): 71.12% (803/1129) # might be duplicate with other beams
+  Error Rate: 0.44% (5/1129) # might be duplicate with other beams
+
+Model: Gemini 2.5 Pro (high) # reasoning_effort: high
   Accuracy: 55.18% (623/1129)
   Accuracy (aligned): 60.67% (685/1129)
   Accuracy (stripped): 63.42% (716/1129)
   Error Rate: 0.00% (0/1129)
 
-Model: Gemini 2.5 pro (low default)
+Model: Gemini 2.5 Pro (low default)
   Accuracy: 53.06% (599/1129)
   Accuracy (aligned): 57.31% (647/1129)
   Accuracy (stripped): 59.96% (677/1129)
   Error Rate: 2.48% (28/1129)
 
-Model: Gemini 2.5 pro (low no_diff)
+Model: Gemini 2.5 Pro (low no_diff)
   Accuracy: 49.16% (555/1129)
   Accuracy (aligned): 52.61% (594/1129)
   Accuracy (stripped): 54.38% (614/1129)
