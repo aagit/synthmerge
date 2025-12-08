@@ -345,13 +345,38 @@ Model: Qwen3-Coder-30B-A3B-Instruct (default) # perplexity beam #2
 
 ## 🛠 Installation
 
-Build from source:
+### Fedora
 
-```bash
-git clone https://github.com/aarcange/synthmerge.git
-cd synthmerge
-cargo build --release
-```
+A Fedora Copr package is available:
+
+1. **Install Synthmerge**:
+
+   ```bash
+   sudo dnf copr enable vittyvk/synthmerge
+   sudo dnf install synthmerge
+   ```
+
+2. **Configuration**:
+   ```bash
+   cp -a /usr/share/synthmerge/synthmerge.yaml ~/.config/
+   $EDITOR ~/.config/synthmerge.yaml
+   ```
+
+### From source code
+
+1. **Install Synthmerge**:
+   ```bash
+   git clone https://gitlab.com/aarcange/synthmerge.git
+   cd synthmerge
+   cargo build --release
+   sudo cp target/release/synthmerge /usr/local/bin/
+   ```
+
+2. **Configuration**:
+   ```bash
+   cp synthmerge.yaml ~/.config/
+   $EDITOR ~/.config/synthmerge.yaml
+   ```
 
 ---
 
