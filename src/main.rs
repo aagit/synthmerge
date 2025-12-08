@@ -22,8 +22,8 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Load configuration
-    let config_path = std::fs::canonicalize(shellexpand::full(&args.config_path)?.as_ref())?;
-    let config = Config::load(&config_path)?;
+    let config_path = shellexpand::full(&args.config_path)?;
+    let config = Config::load(std::path::Path::new(config_path.as_ref()))?;
 
     log::info!("Using config file: {}", args.config_path);
 
