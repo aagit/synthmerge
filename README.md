@@ -290,11 +290,27 @@ Model: Gemini 2.5 Pro (low default)
   Accuracy (stripped): 59.96% (677/1129)
   Error Rate: 2.48% (28/1129)
 
+Model: Gemini 2.5 Flash (no_diff) # reasoning_effort: none
+  Accuracy: 51.82% (585/1129)
+  Accuracy (aligned): 62.00% (700/1129)
+  Accuracy (stripped): 65.10% (735/1129)
+  Error Rate: 2.83% (32/1129)
+  Average tokens: 1044.33
+  Average duration: 1.10 s
+
 Model: Gemini 2.5 Pro (low no_diff)
   Accuracy: 49.16% (555/1129)
   Accuracy (aligned): 52.61% (594/1129)
   Accuracy (stripped): 54.38% (614/1129)
   Error Rate: 3.37% (38/1129)
+
+Model: Gemini 2.5 Flash (default) # reasoning_effort: none
+  Accuracy: 48.98% (553/1129)
+  Accuracy (aligned): 59.52% (672/1129)
+  Accuracy (stripped): 62.71% (708/1129)
+  Error Rate: 6.47% (73/1129)
+  Average tokens: 5041.04
+  Average duration: 1.11 s
 
 # temperature: 0.7 top_k: 20 top_p: 0.8 min_p: 0
 # llama.cpp vulkan Q6_K
