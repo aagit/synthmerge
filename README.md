@@ -205,13 +205,13 @@ endpoints:
 
       # n_probs: 1 provides the probability of the lowest probability
       # token in the resolved conflict
-      #n_probs: 1
+      n_probs: 1
 
       # n_probs: 2 same as n_probs: 1 but it also provides two more
       # beams with the perplexity search algorithm of synthmerge
       # applied to the logprobs, which is a client side only
       # approximated beam search
-      n_probs: 2
+      #n_probs: 2
     variants:
       # one query for each entry in the variants list
       - name: "default"
