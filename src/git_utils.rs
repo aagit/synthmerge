@@ -555,6 +555,7 @@ impl GitUtils {
                     .unwrap_or(0.0),
                 total_tokens,
                 logprob,
+                deduplicated_conflicts: group.into_iter().cloned().collect(),
             });
         }
 

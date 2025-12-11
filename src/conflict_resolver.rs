@@ -32,6 +32,7 @@ pub struct ResolvedConflict {
     pub duration: f64,
     pub total_tokens: Option<u64>,
     pub logprob: Option<f64>,
+    pub deduplicated_conflicts: Vec<ResolvedConflict>,
 }
 
 pub struct ResolverErrors {
@@ -376,6 +377,7 @@ impl<'a> ConflictResolver<'a> {
                             duration,
                             total_tokens,
                             logprob,
+                            deduplicated_conflicts: Vec::new(),
                         });
                     }
                 }
