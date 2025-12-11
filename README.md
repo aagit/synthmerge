@@ -119,14 +119,6 @@ endpoints:
       - name: "no_diff"
         context:
           no_diff: true
-      #- name: "userctx"
-      #  context:
-      #    layout:
-      #      system_message:
-      #        - prompt
-      #      user_message:
-      #        - training
-      #        - diff
 
   - name: "Vertex Claude Sonnet 4.0"
     url: "https://host/path"
@@ -141,14 +133,6 @@ endpoints:
       - name: "no_diff"
         context:
           no_diff: true
-      #- name: "userctx"
-      #  context:
-      #    layout:
-      #      system_message:
-      #        - prompt
-      #      user_message:
-      #        - training
-      #        - diff
     # Optional root certificate for HTTPS endpoints
     # root_certificate_pem: "~/.ssl/corp-ca.pem"
 
@@ -162,6 +146,7 @@ endpoints:
     api_key_file: "~/.keys/gemini.api-key"
     json:
       model: "gemini-2.5-flash"
+      # "none" (only available with Flash) works better with default layout
       reasoning_effort: "none"
     variants:
       - name: "default"
@@ -177,7 +162,7 @@ endpoints:
       model: "gemini-2.5-pro"
       reasoning_effort: "low"
     context:
-      # gemini reasoning_effort != none needs the prompt at the top of system_message
+      # reasoning_effort != none needs the prompt at the top of system_message
       layout:
         system_message:
           - prompt
