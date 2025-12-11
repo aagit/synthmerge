@@ -41,6 +41,7 @@ endpoints:
   - name: "Patchpal AI"
     type: "patchpal"
     url: "http://patchpal.usersys.redhat.com:9080/v1"
+    #telemetry: true # disabled by default
 
   - name: "Gemini 2.5 Flash"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"

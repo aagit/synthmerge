@@ -527,7 +527,7 @@ impl GitUtils {
             let model = Self::combine_model_names(group.as_slice());
 
             // Use the first conflict in the group as the base
-            let base_conflict = group[0];
+            let base_conflict = &group[0].conflict;
             let total_tokens = if group.iter().any(|c| c.total_tokens.is_some()) {
                 Some(
                     group.iter().filter_map(|c| c.total_tokens).sum::<u64>()
@@ -545,7 +545,7 @@ impl GitUtils {
                 None
             };
             result.push(ResolvedConflict {
-                conflict: base_conflict.conflict.clone(),
+                conflict: base_conflict.clone(),
                 resolved_version,
                 model,
                 duration: group
@@ -555,7 +555,14 @@ impl GitUtils {
                     .unwrap_or(0.0),
                 total_tokens,
                 logprob,
-                deduplicated_conflicts: group.into_iter().cloned().collect(),
+                deduplicated_conflicts: group
+                    .into_iter()
+                    .filter(|x| {
+                        assert!(&x.conflict == base_conflict);
+                        true
+                    })
+                    .cloned()
+                    .collect(),
             });
         }
 

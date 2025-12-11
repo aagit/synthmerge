@@ -13,6 +13,8 @@ mod conflict_resolver;
 mod git_utils;
 mod logger;
 mod prob;
+#[cfg(feature = "telemetry")]
+mod telemetry;
 
 include!("main_args.rs");
 
@@ -76,6 +78,12 @@ async fn main() -> Result<()> {
     let resolved_conflicts = resolver.resolve_conflicts(&conflicts).await?.0;
 
     git_utils.apply_resolved_conflicts(&resolved_conflicts)?;
+
+    #[cfg(feature = "telemetry")]
+    {
+        let telemetry = telemetry::Telemetry::new(&config, &conflicts, &resolved_conflicts);
+        telemetry.submit().await?;
+    }
 
     Ok(())
 }

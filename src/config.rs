@@ -82,7 +82,10 @@ pub enum EndpointTypeConfig {
         variants: Option<Vec<EndpointVariants>>,
     },
     #[serde(rename = "patchpal")]
-    Patchpal {},
+    Patchpal {
+        #[serde(default)]
+        telemetry: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

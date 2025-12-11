@@ -9,7 +9,7 @@ use anyhow::Result;
 use futures::future::select_all;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Conflict {
     pub file_path: String,
     pub local: String,
@@ -24,7 +24,7 @@ pub struct Conflict {
     pub marker_size: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedConflict {
     pub conflict: Conflict,
     pub resolved_version: String,
