@@ -495,6 +495,8 @@ impl Bench {
             self.results.len()
         );
 
+        let model_names = self.get_all_model_names(config);
+
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         tokio::spawn(async move {
             loop {
@@ -523,7 +525,13 @@ impl Bench {
             .take(args.max_entries.unwrap_or(usize::MAX))
         {
             // Skip entries that are already processed
-            if self.results.iter().any(|r| r.entry_index == i) {
+            if self
+                .results
+                .iter()
+                .filter(|r| model_names.contains(&r.model) && r.entry_index == i)
+                .count()
+                == model_names.len()
+            {
                 continue;
             }
 
@@ -558,64 +566,57 @@ impl Bench {
             let resolved_conflicts = resolver.resolve_conflicts(&[conflict]).await;
             match resolved_conflicts {
                 Ok((resolved_conflicts, resolved_errors)) => {
-                    if resolved_conflicts.is_empty() {
-                        self.add_error_results_for_all_endpoints(config, i, entry);
-                    } else {
-                        for (model_name, error_count) in &resolved_errors.errors {
-                            let test_result = TestResult {
-                                entry_index: i,
-                                model: model_name.clone(),
-                                correct: false,
-                                correct_aligned: false,
-                                correct_stripped: false,
-                                duration: 0.0,
-                                tokens: None,
-                                logprob: None,
-                                failed_patched_code: None,
-                                error: true,
-                                patch_commit_hash: entry.patch_commit_hash.clone(),
-                                code_commit_hash: entry.code_commit_hash.clone(),
-                            };
-                            for _ in 0..*error_count {
-                                self.results.push(test_result.clone());
-                            }
-                        }
-                        for resolved_conflict in resolved_conflicts {
-                            let test_result = TestResult {
-                                entry_index: i,
-                                model: resolved_conflict.model,
-                                correct: resolved_conflict.resolved_version == entry.patched_code,
-                                correct_aligned: self.aligned(
-                                    &resolved_conflict.resolved_version,
-                                    &entry.patched_code,
-                                ),
-                                correct_stripped: self.stripped(
-                                    &resolved_conflict.resolved_version,
-                                    &entry.patched_code,
-                                ),
-                                duration: resolved_conflict.duration,
-                                tokens: resolved_conflict.total_tokens,
-                                logprob: resolved_conflict.logprob,
-                                failed_patched_code: if resolved_conflict.resolved_version
-                                    == entry.patched_code
-                                {
-                                    None
-                                } else {
-                                    Some(ConflictResolver::create_diff(
-                                        &resolved_conflict.resolved_version,
-                                        &entry.patched_code.clone(),
-                                        1,
-                                    ))
-                                },
-                                error: false,
-                                patch_commit_hash: entry.patch_commit_hash.clone(),
-                                code_commit_hash: entry.code_commit_hash.clone(),
-                            };
-                            self.results.push(test_result);
+                    assert!(!(resolved_conflicts.is_empty() && resolved_errors.errors.is_empty()));
+                    for (model_name, error_count) in resolved_errors.errors.iter() {
+                        let test_result = TestResult {
+                            entry_index: i,
+                            model: model_name.clone(),
+                            correct: false,
+                            correct_aligned: false,
+                            correct_stripped: false,
+                            duration: 0.0,
+                            tokens: None,
+                            logprob: None,
+                            failed_patched_code: None,
+                            error: true,
+                            patch_commit_hash: entry.patch_commit_hash.clone(),
+                            code_commit_hash: entry.code_commit_hash.clone(),
+                        };
+                        for _ in 0..*error_count {
+                            self.results.push(test_result.clone());
                         }
                     }
+                    for resolved_conflict in resolved_conflicts.iter() {
+                        let test_result = TestResult {
+                            entry_index: i,
+                            model: resolved_conflict.model.clone(),
+                            correct: resolved_conflict.resolved_version == entry.patched_code,
+                            correct_aligned: self
+                                .aligned(&resolved_conflict.resolved_version, &entry.patched_code),
+                            correct_stripped: self
+                                .stripped(&resolved_conflict.resolved_version, &entry.patched_code),
+                            duration: resolved_conflict.duration,
+                            tokens: resolved_conflict.total_tokens,
+                            logprob: resolved_conflict.logprob,
+                            failed_patched_code: if resolved_conflict.resolved_version
+                                == entry.patched_code
+                            {
+                                None
+                            } else {
+                                Some(ConflictResolver::create_diff(
+                                    &resolved_conflict.resolved_version,
+                                    &entry.patched_code.clone(),
+                                    1,
+                                ))
+                            },
+                            error: false,
+                            patch_commit_hash: entry.patch_commit_hash.clone(),
+                            code_commit_hash: entry.code_commit_hash.clone(),
+                        };
+                        self.results.push(test_result);
+                    }
                 }
-                Err(_e) => self.add_error_results_for_all_endpoints(config, i, entry),
+                Err(e) => anyhow::bail!("Failed to resolve conflicts: {}", e),
             };
 
             modified = true;
@@ -653,13 +654,8 @@ impl Bench {
         None
     }
 
-    fn add_error_results_for_all_endpoints(
-        &mut self,
-        config: &Config,
-        entry_index: usize,
-        entry: &TestEntry,
-    ) {
-        let mut model_names = Vec::new();
+    fn get_all_model_names(&mut self, config: &Config) -> std::collections::HashSet<String> {
+        let mut model_names = std::collections::HashSet::new();
         // Collect all model names from endpoints configuration
         for endpoint in config.get_all_endpoints() {
             match &endpoint.config {
@@ -672,17 +668,18 @@ impl Bench {
                             } else {
                                 endpoint.name.clone()
                             };
-                            model_names.push(variant_name);
+                            model_names.insert(variant_name);
                         }
                     } else {
                         // No variants, just the endpoint name
-                        model_names.push(endpoint.name.clone());
+                        model_names.insert(endpoint.name.clone());
                     }
                 }
                 EndpointTypeConfig::Patchpal { .. } => {
                     // For patchpal, we have 3 variants (as per existing logic)
-                    for y in 0..3 {
-                        model_names.push(format!("{} #{}", endpoint.name, y));
+                    model_names.insert(endpoint.name.to_string());
+                    for y in 1..3 {
+                        model_names.insert(format!("{} (#{})", endpoint.name, y));
                     }
                 }
             }
@@ -690,23 +687,7 @@ impl Bench {
 
         assert!(!model_names.is_empty());
 
-        for model_name in model_names {
-            let test_result = TestResult {
-                entry_index,
-                model: model_name,
-                correct: false,
-                correct_aligned: false,
-                correct_stripped: false,
-                duration: 0.0,
-                tokens: None,
-                logprob: None,
-                failed_patched_code: None,
-                error: true,
-                patch_commit_hash: entry.patch_commit_hash.clone(),
-                code_commit_hash: entry.code_commit_hash.clone(),
-            };
-            self.results.push(test_result);
-        }
+        model_names
     }
 
     fn stripped(&self, resolved: &str, expected: &str) -> bool {

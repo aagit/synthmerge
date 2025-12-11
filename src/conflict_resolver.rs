@@ -244,8 +244,9 @@ impl<'a> ConflictResolver<'a> {
         endpoints: &[EndpointConfig],
         endpoint: usize,
         variant: usize,
+        beam: usize,
     ) -> String {
-        self.get_model_name_multi(endpoints, endpoint, variant, 0, 0)
+        self.get_model_name_multi(endpoints, endpoint, variant, beam, 0)
     }
 
     fn get_variant_name(
@@ -295,7 +296,7 @@ impl<'a> ConflictResolver<'a> {
                     let api_response_entry = match api_response_entry {
                         Ok(api_response_entry) => api_response_entry,
                         Err(e) => {
-                            let model = self.get_model_name(endpoints, endpoint, variant);
+                            let model = self.get_model_name(endpoints, endpoint, variant, beam);
                             log::warn!("Skipping {} - {}", model, e);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             continue;
@@ -305,7 +306,7 @@ impl<'a> ConflictResolver<'a> {
                     let resolved_strings = match self.parse_response(&api_response_entry.response) {
                         Ok(resolved_strings) => resolved_strings,
                         Err(e) => {
-                            let model = self.get_model_name(endpoints, endpoint, variant);
+                            let model = self.get_model_name(endpoints, endpoint, variant, beam);
                             log::warn!("Skipping {} - {}", model, e);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             continue;
