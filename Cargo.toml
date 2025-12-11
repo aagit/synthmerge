@@ -24,8 +24,8 @@ futures = "0.3"
 env_logger = "0.11"
 log = "0.4"
 csv = "1.4"
-uuid = { version = "1.19", features = ["v4", "serde"] }
-hostname = "0.4"
+uuid = { version = "1", features = ["v4", "serde"] }
+hostname = "0"
 sha2 = "0.10"
 
 [build-dependencies]
