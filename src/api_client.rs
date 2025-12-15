@@ -7,8 +7,9 @@ use crate::config::{
 };
 use crate::conflict_resolver::ConflictResolver;
 use crate::prob;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use reqwest::Certificate;
+use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::time::Duration;
@@ -29,6 +30,19 @@ pub struct ApiResponseEntry {
     pub logprob: Option<f64>,
     pub total_tokens: Option<u64>,
     pub duration: f64,
+}
+
+#[derive(Debug)]
+pub enum ApiRequestError {
+    ExceedContextSize,
+}
+
+impl fmt::Display for ApiRequestError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ApiRequestError::ExceedContextSize => write!(f, "Exceed context size"),
+        }
+    }
 }
 
 macro_rules! get_context_field {
@@ -209,6 +223,18 @@ impl ApiClient {
                         "Failed to parse JSON response"
                     })?;
 
+                // Check for context size error in OpenAI responses
+                if let Some(error) = json_response.get("error")
+                    && let Some(error_type) = error.get("type").and_then(|v| v.as_str())
+                    && error_type == "exceed_context_size_error"
+                {
+                    log::warn!(
+                        "Context size error for endpoint {}. Not retrying.",
+                        self.endpoint.name
+                    );
+                    bail!(ApiRequestError::ExceedContextSize);
+                }
+
                 let content = json_response
                     .get("choices")
                     .and_then(|choices| choices.get(0))
@@ -326,6 +352,20 @@ impl ApiClient {
                         log::warn!("Failed to parse JSON response:\n{}", response_text);
                         "Failed to parse JSON response"
                     })?;
+
+                // Check for context size error in Anthropic responses
+                if let Some(error) = json_response.get("error")
+                    && let Some(error_type) = error.get("type").and_then(|v| v.as_str())
+                    && error_type == "invalid_request_error"
+                    && let Some(message) = error.get("message").and_then(|v| v.as_str())
+                    && message.contains("Request size exceeds model context window")
+                {
+                    log::warn!(
+                        "Context size error for endpoint {}. Not retrying.",
+                        self.endpoint.name
+                    );
+                    bail!(ApiRequestError::ExceedContextSize);
+                }
 
                 let content = json_response
                     .get("content")
@@ -618,6 +658,15 @@ impl ApiClient {
                             return Ok(api_response);
                         }
                         Err(e) => {
+                            if let Some(api_error) = e.downcast_ref::<ApiRequestError>() {
+                                match api_error {
+                                    ApiRequestError::ExceedContextSize => {
+                                        // If it's a context size error, don't retry
+                                        self.apply_wait().await;
+                                        return Err(e);
+                                    }
+                                }
+                            }
                             self.apply_delay(&mut delay, max_delay, &e).await;
                             last_error = Some(e);
                         }
