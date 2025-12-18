@@ -199,34 +199,51 @@ impl GitUtils {
         mode: ConflictMarkerMode,
     ) -> Result<(usize, usize, String, String)> {
         let head_context_end = (start_line.saturating_sub(1)).max(0);
-        let head_context_start = (head_context_end
-            .saturating_sub(self.context_lines.code_context_lines as usize))
-        .max(0);
-        let nr_head_context_lines = head_context_end - head_context_start;
         let head_content_lines = content_lines[..start_line].to_vec();
-        let head_content_lines = Self::remove_conflict_markers(
-            head_content_lines[..head_context_end].to_vec(),
-            marker_size,
-            mode,
-        )?;
+
+        const CONTEXT_BEYOND_MARKER: bool = false;
+        let head_content_lines = if CONTEXT_BEYOND_MARKER {
+            Self::remove_conflict_markers(
+                head_content_lines[..head_context_end].to_vec(),
+                marker_size,
+                mode,
+            )
+        } else {
+            Ok(head_content_lines[..head_context_end]
+                .iter()
+                .rev()
+                .take_while(|&&x| !x.starts_with(&Self::create_end_marker(marker_size)))
+                .cloned()
+                .collect::<Vec<_>>()
+                .iter()
+                .rev()
+                .cloned()
+                .collect::<Vec<_>>())
+        }?;
         let head_context_lines = head_content_lines[head_content_lines
             .len()
             .saturating_sub(self.context_lines.code_context_lines as usize)
             .max(0)..]
             .to_vec();
+        let nr_head_context_lines = head_context_lines.len();
 
-        let tail_context_start = (start_line + conflict_lines.len() - 1).min(content_lines.len());
-        let tail_context_end = (tail_context_start
-            + self.context_lines.code_context_lines as usize)
-            .min(content_lines.len());
-        let nr_tail_context_lines = tail_context_end - tail_context_start;
         let tail_content_lines = content_lines[start_line + conflict_lines.len() - 1..].to_vec();
-        let tail_content_lines =
-            Self::remove_conflict_markers(tail_content_lines, marker_size, mode)?;
+        let tail_content_lines = if CONTEXT_BEYOND_MARKER {
+            Self::remove_conflict_markers(tail_content_lines, marker_size, mode)
+        } else {
+            Ok(tail_content_lines
+                .iter()
+                .take_while(|&&x| {
+                    !x.starts_with(&format!("{} ", Self::create_local_marker(marker_size)))
+                })
+                .cloned()
+                .collect::<Vec<_>>())
+        }?;
         let tail_context_lines = tail_content_lines[..tail_content_lines
             .len()
             .min(self.context_lines.code_context_lines as usize)]
             .to_vec();
+        let nr_tail_context_lines = tail_context_lines.len();
 
         Ok((
             nr_head_context_lines,
