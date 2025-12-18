@@ -183,14 +183,8 @@ endpoints:
       layout:
         system_message:
           - prompt
-        user_message:
           - training
           - diff
-    variants:
-      - name: "default"
-      - name: "no_diff"
-        context:
-          no_diff: true
 
   - name: "Gemini 3 Pro preview"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -203,14 +197,8 @@ endpoints:
       layout:
         system_message:
           - prompt
-        user_message:
           - training
           - diff
-    variants:
-      - name: "default"
-      - name: "no_diff"
-        context:
-          no_diff: true
 
   - name: "llama.cpp vulkan minimal" # requires --no-jinja
     url: "http://localhost:8811/v1/chat/completions"
