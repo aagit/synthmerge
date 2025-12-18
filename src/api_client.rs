@@ -35,12 +35,14 @@ pub struct ApiResponseEntry {
 #[derive(Debug)]
 pub enum ApiRequestError {
     ExceedContextSize,
+    UsageLimitExceeded,
 }
 
 impl fmt::Display for ApiRequestError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ApiRequestError::ExceedContextSize => write!(f, "Exceed context size"),
+            ApiRequestError::UsageLimitExceeded => write!(f, "Usage limit exceeded"),
         }
     }
 }
@@ -218,9 +220,13 @@ impl ApiClient {
              -> Result<ApiResponseEntry> {
                 // Parse JSON response to extract the content
                 let json_response: serde_json::Value = serde_json::from_str(response_text)
-                    .with_context(|| {
-                        log::warn!("Failed to parse JSON response:\n{}", response_text);
-                        "Failed to parse JSON response"
+                    .map_err(|e| {
+                        if response_text.contains("Usage limit exceeded") {
+                            anyhow::anyhow!(ApiRequestError::UsageLimitExceeded)
+                        } else {
+                            log::warn!("Failed to parse JSON response:\n{}", response_text);
+                            anyhow::anyhow!("Failed to parse JSON response: {}", e)
+                        }
                     })?;
 
                 // Check for context size error in OpenAI responses
@@ -348,9 +354,13 @@ impl ApiClient {
             |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponseEntry> {
                 // Parse JSON response to extract the content
                 let json_response: serde_json::Value = serde_json::from_str(response_text)
-                    .with_context(|| {
-                        log::warn!("Failed to parse JSON response:\n{}", response_text);
-                        "Failed to parse JSON response"
+                    .map_err(|e| {
+                        if response_text.contains("Usage limit exceeded") {
+                            anyhow::anyhow!(ApiRequestError::UsageLimitExceeded)
+                        } else {
+                            log::warn!("Failed to parse JSON response:\n{}", response_text);
+                            anyhow::anyhow!("Failed to parse JSON response: {}", e)
+                        }
                     })?;
 
                 // Check for context size error in Anthropic responses
@@ -488,7 +498,7 @@ impl ApiClient {
                     }
                 }
             }
-            assert!(!message.contains("\n\n\n"));
+            assert!(!message.contains("\n\n\n"), "{}", message);
             assert!(!message.chars().next().is_some_and(char::is_whitespace));
             assert!(!message.chars().last().is_some_and(char::is_whitespace));
         }
@@ -546,9 +556,13 @@ impl ApiClient {
             |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponse> {
                 // Try to parse as JSON and extract content
                 let json_response: serde_json::Value = serde_json::from_str(response_text)
-                    .with_context(|| {
-                        log::warn!("Failed to parse JSON response:\n{}", response_text);
-                        "Failed to parse JSON response"
+                    .map_err(|e| {
+                        if response_text.contains("Usage limit exceeded") {
+                            anyhow::anyhow!(ApiRequestError::UsageLimitExceeded)
+                        } else {
+                            log::warn!("Failed to parse JSON response:\n{}", response_text);
+                            anyhow::anyhow!("Failed to parse JSON response: {}", e)
+                        }
                     })?;
                 if json_response.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0") {
                     log::warn!(
@@ -665,6 +679,7 @@ impl ApiClient {
                                         self.apply_wait().await;
                                         return Err(e);
                                     }
+                                    ApiRequestError::UsageLimitExceeded => {}
                                 }
                             }
                             self.apply_delay(&mut delay, max_delay, &e).await;
