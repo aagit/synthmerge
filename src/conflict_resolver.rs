@@ -488,7 +488,8 @@ static inline struct feat *get_special_something(double option, struct device *d
 {patch}{patch_end}
 
 {code_start}
-{code}{code_end}"#,
+{code}{code_end}
+"#,
             patch_start = Self::PATCH_START,
             patch_end = Self::PATCH_END,
             code_start = Self::CODE_START,
