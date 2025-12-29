@@ -37,6 +37,7 @@ pub enum ApiRequestError {
     ExceedContextSize,
     UsageLimitExceeded,
     ContentFilterRecitation,
+    IncompleteGeneration,
 }
 
 impl fmt::Display for ApiRequestError {
@@ -45,6 +46,7 @@ impl fmt::Display for ApiRequestError {
             ApiRequestError::ExceedContextSize => write!(f, "Exceed context size"),
             ApiRequestError::UsageLimitExceeded => write!(f, "Usage limit exceeded"),
             ApiRequestError::ContentFilterRecitation => write!(f, "Content filter: recitation"),
+            ApiRequestError::IncompleteGeneration => write!(f, "Incomplete generation"),
         }
     }
 }
@@ -257,6 +259,26 @@ impl ApiClient {
                     bail!(ApiRequestError::ContentFilterRecitation);
                 }
 
+                // Check for incomplete generation in OpenAI responses
+                if let Some(choices) = json_response.get("choices").and_then(|c| c.as_array())
+                    && let Some(choice) = choices.first()
+                    && let Some(finish_reason) =
+                        choice.get("finish_reason").and_then(|v| v.as_str())
+                    && finish_reason != "stop"
+                {
+                    log::warn!(
+                        "Incomplete generation error for endpoint {}. Not retrying. Finish reason: {}",
+                        self.endpoint.name,
+                        finish_reason
+                    );
+                    log::warn!(
+                        "Response JSON ({}):\n{}",
+                        self.endpoint.name,
+                        serde_json::to_string_pretty(&json_response).unwrap()
+                    );
+                    bail!(ApiRequestError::IncompleteGeneration);
+                }
+
                 let content = json_response
                     .get("choices")
                     .and_then(|choices| choices.get(0))
@@ -391,6 +413,23 @@ impl ApiClient {
                         self.endpoint.name
                     );
                     bail!(ApiRequestError::ExceedContextSize);
+                }
+
+                // Check for incomplete generation in Anthropic responses
+                if let Some(stop_reason) = json_response.get("stop_reason").and_then(|v| v.as_str())
+                    && stop_reason != "end_turn"
+                {
+                    log::warn!(
+                        "Incomplete generation error for endpoint {}. Not retrying. Stop reason: {}",
+                        self.endpoint.name,
+                        stop_reason
+                    );
+                    log::warn!(
+                        "Response JSON ({}):\n{}",
+                        self.endpoint.name,
+                        serde_json::to_string_pretty(&json_response).unwrap()
+                    );
+                    bail!(ApiRequestError::IncompleteGeneration);
                 }
 
                 let content = json_response
@@ -691,7 +730,8 @@ impl ApiClient {
                             if let Some(api_error) = e.downcast_ref::<ApiRequestError>() {
                                 match api_error {
                                     ApiRequestError::ExceedContextSize
-                                    | ApiRequestError::ContentFilterRecitation => {
+                                    | ApiRequestError::ContentFilterRecitation
+                                    | ApiRequestError::IncompleteGeneration => {
                                         // If it's a context size error, don't retry
                                         self.apply_wait().await;
                                         return Err(e);
