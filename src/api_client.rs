@@ -690,17 +690,13 @@ impl ApiClient {
                         Err(e) => {
                             if let Some(api_error) = e.downcast_ref::<ApiRequestError>() {
                                 match api_error {
-                                    ApiRequestError::ExceedContextSize => {
+                                    ApiRequestError::ExceedContextSize
+                                    | ApiRequestError::ContentFilterRecitation => {
                                         // If it's a context size error, don't retry
                                         self.apply_wait().await;
                                         return Err(e);
                                     }
                                     ApiRequestError::UsageLimitExceeded => {}
-                                    ApiRequestError::ContentFilterRecitation => {
-                                        // If it's a content filter recitation error, don't retry
-                                        self.apply_wait().await;
-                                        return Err(e);
-                                    }
                                 }
                             }
                             self.apply_delay(&mut delay, max_delay, &e).await;
