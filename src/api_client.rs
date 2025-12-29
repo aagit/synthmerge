@@ -36,6 +36,7 @@ pub struct ApiResponseEntry {
 pub enum ApiRequestError {
     ExceedContextSize,
     UsageLimitExceeded,
+    ContentFilterRecitation,
 }
 
 impl fmt::Display for ApiRequestError {
@@ -43,6 +44,7 @@ impl fmt::Display for ApiRequestError {
         match self {
             ApiRequestError::ExceedContextSize => write!(f, "Exceed context size"),
             ApiRequestError::UsageLimitExceeded => write!(f, "Usage limit exceeded"),
+            ApiRequestError::ContentFilterRecitation => write!(f, "Content filter: recitation"),
         }
     }
 }
@@ -239,6 +241,20 @@ impl ApiClient {
                         self.endpoint.name
                     );
                     bail!(ApiRequestError::ExceedContextSize);
+                }
+
+                // Check for content filter recitation error in OpenAI responses
+                if let Some(choices) = json_response.get("choices").and_then(|c| c.as_array())
+                    && let Some(choice) = choices.first()
+                    && let Some(finish_reason) =
+                        choice.get("finish_reason").and_then(|v| v.as_str())
+                    && finish_reason == "content_filter: RECITATION"
+                {
+                    log::warn!(
+                        "Content filter recitation error for endpoint {}. Not retrying.",
+                        self.endpoint.name
+                    );
+                    bail!(ApiRequestError::ContentFilterRecitation);
                 }
 
                 let content = json_response
@@ -680,6 +696,11 @@ impl ApiClient {
                                         return Err(e);
                                     }
                                     ApiRequestError::UsageLimitExceeded => {}
+                                    ApiRequestError::ContentFilterRecitation => {
+                                        // If it's a content filter recitation error, don't retry
+                                        self.apply_wait().await;
+                                        return Err(e);
+                                    }
                                 }
                             }
                             self.apply_delay(&mut delay, max_delay, &e).await;
