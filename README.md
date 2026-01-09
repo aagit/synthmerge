@@ -157,50 +157,18 @@ endpoints:
     type: "patchpal"
     url: "http://patchpal.usersys.redhat.com:9080/v1"
 
-  - name: "Gemini 2.5 Flash"
+  - name: "Gemini 3 Flash Preview"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     type: "openai"
     api_key_file: "~/.keys/gemini.api-key"
     json:
-      model: "gemini-2.5-flash"
-      # "none" (only available with Flash) works better with default layout
+      model: "gemini-3-flash-preview"
       reasoning_effort: "none"
     variants:
       - name: "default"
       - name: "no_diff"
         context:
           no_diff: true
-
-  - name: "Gemini 2.5 Pro"
-    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-    type: "openai"
-    api_key_file: "~/.keys/gemini.api-key"
-    json:
-      model: "gemini-2.5-pro"
-      reasoning_effort: "low"
-    context:
-      # reasoning_effort != none needs the prompt at the top of system_message
-      layout:
-        system_message:
-          - prompt
-          - training
-          - diff
-        user_message: []
-
-  - name: "Gemini 3 Pro preview"
-    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-    type: "openai"
-    api_key_file: "~/.keys/gemini.api-key"
-    json:
-      model: "gemini-3-pro-preview"
-      reasoning_effort: "low"
-    context:
-      layout:
-        system_message:
-          - prompt
-          - training
-          - diff
-        user_message: []
 
   - name: "llama.cpp vulkan minimal" # requires --no-jinja
     url: "http://localhost:8811/v1/chat/completions"
@@ -267,11 +235,11 @@ endpoints:
 
 ## ⚙️ Context Layout Configuration
 
-The `context: layout:` configuration allows fine-grained control over how information is structured in a LLM request.
+The `context: layout:` configuration provides fine-grained control over how information is structured in LLM requests.
 
-- **Prompt placement**: All models tested so far (including Gemini 2.5 Flash with `reasoning_effort: none`) perform best when the most important directives are closest to the generation
-- **Gemini thinking models exception**: Gemini models with `reasoning_effort != none` require the prompt explaining the challenge at hand to be at the top of the system message
-- **Layout flexibility**: The layout configuration enables each model to select the optimal information structure
+- **Prompt placement**: The highest-performing models (including Gemini 3 Flash, regardless of reasoning effort settings) achieve optimal results when critical directives are positioned closest to the generation context
+- **Gemini 2.5 thinking models exception**: Models with `reasoning_effort != none` (all Gemini 2.5 Pro variants) require the prompt explaining the challenge to be placed at the beginning of the system message
+- **Layout flexibility**: This configuration enables each model to select its optimal information structure, maximizing performance through tailored context organization
 
 ### Available layout elements:
 - `prompt`: The high-level prompt explaining the challenge
@@ -365,7 +333,7 @@ This measurement used only new test data never exposed to the model during the f
 Claude Sonnet 4.5 and Gemini 3 Pro preview not done yet.
 
 Model: Claude Sonnet 4.0 (default)
-  Accuracy: 66.70% (753/1129)
+  Accuracy: 66.70% (753/1129) # highest score
   Accuracy (aligned): 70.42% (795/1129)
   Accuracy (stripped): 73.34% (828/1129)
   Error Rate: 0.00% (0/1129)
@@ -387,6 +355,22 @@ Model: Patchpal AI
   Accuracy (stripped): 71.12% (803/1129) # might be duplicate with other beams
   Error Rate: 0.44% (5/1129)
 
+Model: Gemini 3 Flash (none default) # reasoning_effort: none
+  Accuracy: 64.13% (724/1129)
+  Accuracy (aligned): 70.59% (797/1129) # highest score
+  Accuracy (stripped): 73.43% (829/1129) # highest score
+  Error Rate: 0.62% (7/1129)
+  Average tokens: 5359.16
+  Average duration: 1.73 s # fastest
+
+Model: Gemini 3 Flash (none no_diff) # reasoning_effort: none
+  Accuracy: 62.98% (711/1129)
+  Accuracy (aligned): 68.02% (768/1129)
+  Accuracy (stripped): 71.04% (802/1129)
+  Error Rate: 2.04% (23/1129)
+  Average tokens: 1084.24
+  Average duration: 1.53 s
+  
 Model: Gemini 2.5 Pro (high) # reasoning_effort: high
   Accuracy: 55.18% (623/1129)
   Accuracy (aligned): 60.67% (685/1129)
