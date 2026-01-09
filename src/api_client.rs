@@ -168,7 +168,7 @@ impl ApiClient {
     ) -> Result<ApiResponseEntry> {
         let mut chat = self.create_chat(request, variant);
         let mut perplexity_search = None;
-        assert!(chat.len() % 2 == 0, "{}", chat.len());
+        assert!(chat.len().is_multiple_of(2), "{}", chat.len());
         if !perplexity.is_empty() {
             perplexity_search = Some(perplexity.remove(0));
             chat.push(perplexity_search.clone());
