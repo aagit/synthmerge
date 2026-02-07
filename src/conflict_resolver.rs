@@ -7,6 +7,7 @@ use crate::git_utils::ContextLines;
 use crate::prob;
 use anyhow::Result;
 use futures::future::select_all;
+use regex::Regex;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +46,8 @@ pub struct ConflictResolver<'a> {
     git_diff: Option<String>,
     training: String,
     bench: bool,
+    start_regex: Regex,
+    end_regex: Regex,
 }
 
 impl<'a> ConflictResolver<'a> {
@@ -56,6 +59,8 @@ impl<'a> ConflictResolver<'a> {
     const CODE_END: &'static str = "<|/code|>";
     pub const PATCHED_CODE_START: &'static str = "<|patched_code|>";
     pub const PATCHED_CODE_END: &'static str = "<|/patched_code|>";
+    const REGEXP_PATCHED_CODE_START: &'static str = r"(?ms)^[{<|]{1,3}patched_code[|>}]{1,3}$\n";
+    const REGEXP_PATCHED_CODE_END: &'static str = r"(?ms)^[{<|/]{1,4}patched_code[|>}]{1,3}$";
     pub fn new(
         context_lines: ContextLines,
         config: &'a Config,
@@ -68,6 +73,8 @@ impl<'a> ConflictResolver<'a> {
             git_diff: Self::__git_diff(git_diff),
             training: Self::create_training(),
             bench,
+            start_regex: Regex::new(Self::REGEXP_PATCHED_CODE_START).unwrap(),
+            end_regex: Regex::new(Self::REGEXP_PATCHED_CODE_END).unwrap(),
         }
     }
 
@@ -530,8 +537,8 @@ static inline struct feat *get_special_something(double option, struct device *d
 
     /// Parse the API response into 3 solutions
     fn parse_response(&self, response: &String) -> Result<Vec<String>> {
-        let start_marker = format!("{}\n", Self::PATCHED_CODE_START);
-        let end_marker = Self::PATCHED_CODE_END;
+        let start_regex = &self.start_regex;
+        let end_regex = &self.end_regex;
 
         log::info!("Response:\n{}", response);
 
@@ -539,10 +546,10 @@ static inline struct feat *get_special_something(double option, struct device *d
         let mut err: Option<Result<Vec<String>, anyhow::Error>> = None;
         let mut start = 0;
 
-        while let Some(start_pos) = response[start..].find(&start_marker) {
-            let start_pos = start + start_pos + start_marker.len();
-            let end_pos = response[start_pos..].find(end_marker);
-            if end_pos.is_none() {
+        while let Some(start_match) = start_regex.find_at(response, start) {
+            let start_pos = start_match.end();
+            let end_match = end_regex.find_at(response, start_pos);
+            if end_match.is_none() {
                 err = Some(Err(anyhow::anyhow!(
                     "Invalid format: missing {}",
                     Self::PATCHED_CODE_END
@@ -550,12 +557,13 @@ static inline struct feat *get_special_something(double option, struct device *d
                 break;
             }
 
-            let end_pos = start_pos + end_pos.unwrap();
+            let end_match = end_match.unwrap();
+            let end_pos = end_match.start();
 
             let content = &response[start_pos..end_pos];
             results.push(content.to_string());
 
-            start = end_pos + end_marker.len();
+            start = end_match.end();
         }
 
         if results.is_empty() {
