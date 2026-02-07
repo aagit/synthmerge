@@ -397,7 +397,7 @@ impl<'a> ConflictResolver<'a> {
     fn __git_diff(git_diff: Option<String>) -> Option<String> {
         git_diff.map(|s| {
             format!(
-                r#"The PATCH originates from the DIFF between {diff_start}{diff_end}.
+                r#"The PATCH originates from the DIFF between {diff_start} and {diff_end}.
 
 {diff_start}
 {s}{diff_end}"#,
@@ -419,9 +419,9 @@ impl<'a> ConflictResolver<'a> {
     /// Create a prompt for the AI to resolve the conflict
     fn create_prompt(&self, conflict: &Conflict) -> String {
         format!(
-            r#"Apply the PATCH between {patch_start}{patch_end} to the CODE between {code_start}{code_end}.
+            r#"Apply the PATCH between {patch_start} and {patch_end} to the CODE between {code_start} and {code_end}.
 
-FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_code_end} instead of markdown fences.
+FINALLY answer with the final PATCHED CODE between {patched_code_start} and {patched_code_end} instead of markdown fences.
 
 Rewrite the {nr_head_context_lines} line{head_plural} after {code_start} and the {nr_tail_context_lines} line{tail_plural} before {code_end} exactly the same, including all empty lines."#,
             patch_start = Self::PATCH_START,
