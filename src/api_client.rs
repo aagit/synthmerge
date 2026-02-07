@@ -163,7 +163,6 @@ impl ApiClient {
         request: &ApiRequest,
         variant: &EndpointVariants,
         no_chat: &bool,
-        headers: &reqwest::header::HeaderMap,
         perplexity: &mut Vec<String>,
     ) -> Result<ApiResponseEntry> {
         let mut chat = self.create_chat(request, variant);
@@ -215,7 +214,6 @@ impl ApiClient {
 
         self.retry_request_perplexity_search(
             &self.endpoint.url,
-            headers.clone(),
             &payload,
             perplexity,
             |response_text: &str,
@@ -326,8 +324,6 @@ impl ApiClient {
     }
 
     async fn query_openai(&self, request: &ApiRequest) -> Result<ApiResponse> {
-        let headers = self.create_headers().await?;
-
         let (variants, no_chat) = match &self.endpoint.config {
             EndpointTypeConfig::OpenAI {
                 variants, no_chat, ..
@@ -348,7 +344,7 @@ impl ApiClient {
             let mut variant_responses = Vec::new();
             loop {
                 variant_responses.push(
-                    self.query_openai_variant(request, variant, no_chat, &headers, &mut perplexity)
+                    self.query_openai_variant(request, variant, no_chat, &mut perplexity)
                         .await,
                 );
                 if perplexity.is_empty() {
@@ -365,7 +361,6 @@ impl ApiClient {
         &self,
         request: &ApiRequest,
         variant: &EndpointVariants,
-        headers: &reqwest::header::HeaderMap,
     ) -> Result<ApiResponseEntry> {
         let chat = self.create_chat(request, variant);
 
@@ -387,7 +382,6 @@ impl ApiClient {
 
         self.retry_request(
             &self.endpoint.url,
-            headers.clone(),
             &payload,
             |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponseEntry> {
                 // Parse JSON response to extract the content
@@ -487,8 +481,6 @@ impl ApiClient {
             _ => panic!("cannot happen"),
         };
 
-        let headers = self.create_headers().await?;
-
         // Handle EndpointVariants - if None, create a single entry with no parameters
         let variants_list = match variants {
             Some(variants) => variants,
@@ -498,10 +490,7 @@ impl ApiClient {
         let mut responses = Vec::new();
 
         for variant in variants_list {
-            responses.push(vec![
-                self.query_anthropic_variant(request, variant, &headers)
-                    .await,
-            ]);
+            responses.push(vec![self.query_anthropic_variant(request, variant).await]);
         }
 
         Ok(responses)
@@ -665,14 +654,13 @@ impl ApiClient {
                 Ok(vec![responses])
             };
 
-        self.retry_request(&self.endpoint.url, headers, &payload, response_handler)
+        self.retry_request(&self.endpoint.url, &payload, response_handler)
             .await
     }
 
     async fn retry_request_perplexity_search<F, R>(
         &self,
         url: &str,
-        headers: reqwest::header::HeaderMap,
         payload: &serde_json::Value,
         perplexity: &mut Vec<String>,
         response_handler: F,
@@ -692,10 +680,11 @@ impl ApiClient {
         );
 
         for _ in 0..self.endpoint.retries {
+            let headers = self.create_headers().await?;
             let response = self
                 .client
                 .post(url.to_string())
-                .headers(headers.clone())
+                .headers(headers)
                 .json(payload)
                 .send()
                 .await;
@@ -765,7 +754,6 @@ impl ApiClient {
     async fn retry_request<F, R>(
         &self,
         url: &str,
-        headers: reqwest::header::HeaderMap,
         payload: &serde_json::Value,
         response_handler: F,
     ) -> Result<R>
@@ -773,14 +761,8 @@ impl ApiClient {
         F: Fn(&str, &mut Vec<String>, f64) -> Result<R>,
     {
         let mut perplexity = Vec::<String>::new();
-        self.retry_request_perplexity_search(
-            url,
-            headers,
-            payload,
-            &mut perplexity,
-            response_handler,
-        )
-        .await
+        self.retry_request_perplexity_search(url, payload, &mut perplexity, response_handler)
+            .await
     }
 
     async fn apply_wait(&self) {
