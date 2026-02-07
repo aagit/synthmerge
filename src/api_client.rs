@@ -428,17 +428,14 @@ impl ApiClient {
 
                 let content = json_response
                     .get("content")
-                    .and_then(|choices| choices.get(0))
-                    .and_then(|choice| {
-                        if let Some(type_val) = choice.get("type").and_then(|v| v.as_str()) {
-                            if type_val == "text" {
-                                choice.get("text").and_then(|text| text.as_str())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
+                    .and_then(|choices| choices.as_array())
+                    .and_then(|choices| {
+                        choices.iter().find(|choice| {
+                            choice.get("type").and_then(|v| v.as_str()) == Some("text")
+                        })
+                        .and_then(|choice| {
+                            choice.get("text").and_then(|text| text.as_str())
+                        })
                     })
                     .with_context(|| {
                         log::warn!(
