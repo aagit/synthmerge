@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
+use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
 use synthmerge::bench::Bench;
@@ -15,12 +16,15 @@ async fn main() -> Result<()> {
 
     // Load configuration
     let config_path = shellexpand::full(&args.config_path)?;
-    let config = Config::load(std::path::Path::new(config_path.as_ref()))?;
+    let config_path = std::path::Path::new(config_path.as_ref());
+    let config = Config::load(config_path)?;
 
     // Load test database
-    let db_path = shellexpand::full(&args.database_path)?;
+    let db_path = shellexpand::full(&args.test_data_path)
+        .with_context(|| format!("Failed to expand test data path: {}", args.test_data_path))?;
     let db_path = db_path.as_ref();
-    let entries = Bench::load_database(db_path)?;
+    let entries = Bench::load_database(db_path)
+        .with_context(|| format!("Failed to load test data from: {}", db_path))?;
 
     println!("Loaded {} test entries", entries.len());
 

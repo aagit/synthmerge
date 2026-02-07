@@ -14,9 +14,9 @@ pub struct BenchArgs {
     )]
     pub config_path: String,
 
-    /// Path to test database file (JSON lines format)
-    #[arg(short = 'd', long = "database")]
-    pub database_path: String,
+    /// Path to test data file (CSV lines format)
+    #[arg(short = 'd', long = "test-data")]
+    pub test_data_path: String,
 
     /// Path to checkpoint file
     #[arg(short = 'k', long = "checkpoint")]
