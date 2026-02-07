@@ -421,7 +421,7 @@ impl<'a> ConflictResolver<'a> {
         format!(
             r#"Apply the PATCH between {patch_start}{patch_end} to the CODE between {code_start}{code_end}.
 
-FINALLY write the final PATCHED CODE between {patched_code_start}{patched_code_end} instead of markdown fences.
+FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_code_end} instead of markdown fences.
 
 Rewrite the {nr_head_context_lines} line{head_plural} after {code_start} and the {nr_tail_context_lines} line{tail_plural} before {code_end} exactly the same, including all empty lines."#,
             patch_start = Self::PATCH_START,
