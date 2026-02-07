@@ -360,14 +360,17 @@ mod tests {
     fn test_config_loading() {
         let config_yaml = include_str!(concat!("../", env!("CARGO_PKG_NAME"), ".yaml"));
         let config: Config = serde_yaml::from_str(config_yaml).unwrap();
-        assert_eq!(config.endpoints.len(), 7);
-        assert_eq!(config.endpoints[0].name, "Claude Sonnet 4.5");
-        assert_eq!(config.endpoints[1].name, "Vertex Claude Sonnet 4.0");
-        assert_eq!(config.endpoints[2].name, "Patchpal AI");
-        assert_eq!(config.endpoints[3].name, "Gemini 3 Flash Preview");
-        assert_eq!(config.endpoints[4].name, "llama.cpp vulkan minimal");
-        assert_eq!(config.endpoints[5].name, "llama.cpp vulkan");
-        assert_eq!(config.endpoints[6].name, "llama.cpp vulkan no_chat");
+        assert_eq!(config.endpoints.len(), 10);
+        assert_eq!(config.endpoints[0].name, "Claude Opus 4.6");
+        assert_eq!(config.endpoints[1].name, "Claude Sonnet 4.5");
+        assert_eq!(config.endpoints[2].name, "Vertex Claude Opus 4.6");
+        assert_eq!(config.endpoints[3].name, "Vertex Claude Sonnet 4.5");
+        assert_eq!(config.endpoints[4].name, "Vertex Gateway Claude Sonnet 4.0");
+        assert_eq!(config.endpoints[5].name, "Patchpal AI");
+        assert_eq!(config.endpoints[6].name, "Gemini 3 Flash Preview");
+        assert_eq!(config.endpoints[7].name, "llama.cpp vulkan minimal");
+        assert_eq!(config.endpoints[8].name, "llama.cpp vulkan");
+        assert_eq!(config.endpoints[9].name, "llama.cpp vulkan no_chat");
     }
 }
 

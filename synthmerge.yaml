@@ -1,5 +1,16 @@
 endpoints:
 
+  - name: "Claude Opus 4.6"
+    url: "https://api.anthropic.com/v1/messages"
+    type: "anthropic"
+    x_api_key_file: "~/.keys/anthropic.api-key"
+    json:
+      max_tokens: 20000
+      model: "claude-opus-4-6"
+      temperature: 0
+    headers:
+      anthropic-version: "2023-06-01"
+
   - name: "Claude Sonnet 4.5"
     url: "https://api.anthropic.com/v1/messages"
     type: "anthropic"
@@ -10,13 +21,30 @@ endpoints:
       temperature: 0
     headers:
       anthropic-version: "2023-06-01"
-    variants:
-      - name: "default"
-      - name: "no_diff"
-        context:
-          no_diff: true
 
-  - name: "Vertex Claude Sonnet 4.0"
+  - name: "Vertex Claude Opus 4.6"
+    url: "https://aiplatform.googleapis.com/v1/projects/<project_id>/locations/global/publishers/anthropic/models/claude-opus-4-6@default:streamRawPredict"
+    type: "anthropic"
+    # gcloud auth print-access-token >~/.keys/vertex-ai.api-key
+    api_key_file: "~/.keys/vertex-ai.api-key"
+    max_delay: 10000
+    json:
+      anthropic_version: "vertex-2023-10-16"
+      max_tokens: 20000
+      temperature: 0
+
+  - name: "Vertex Claude Sonnet 4.5"
+    url: "https://aiplatform.googleapis.com/v1/projects/<project_id>/locations/global/publishers/anthropic/models/claude-sonnet-4-5@20250929:streamRawPredict"
+    type: "anthropic"
+    # gcloud auth print-access-token >~/.keys/vertex-ai.api-key
+    api_key_file: "~/.keys/vertex-ai.api-key"
+    max_delay: 10000
+    json:
+      anthropic_version: "vertex-2023-10-16"
+      max_tokens: 20000
+      temperature: 0
+
+  - name: "Vertex Gateway Claude Sonnet 4.0"
     url: "https://host/path"
     type: "anthropic"
     api_key_file: "~/.keys/claude.api-key"
@@ -24,11 +52,6 @@ endpoints:
       anthropic_version: "something-YYYY-MM-DD"
       max_tokens: 20000
       temperature: 0
-    variants:
-      - name: "default"
-      - name: "no_diff"
-        context:
-          no_diff: true
     # Optional root certificate for HTTPS endpoints
     # root_certificate_pem: "~/.ssl/corp-ca.pem"
 
