@@ -530,7 +530,7 @@ impl Bench {
                 .iter()
                 .filter(|r| model_names.contains(&r.model) && r.entry_index == i)
                 .count()
-                == model_names.len()
+                >= model_names.len()
             {
                 continue;
             }
