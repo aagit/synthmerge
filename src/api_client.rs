@@ -163,6 +163,7 @@ impl ApiClient {
         request: &ApiRequest,
         variant: &EndpointVariants,
         no_chat: &bool,
+        gbnf: &bool,
         perplexity: &mut Vec<String>,
     ) -> Result<ApiResponseEntry> {
         let mut chat = self.create_chat(request, variant);
@@ -210,6 +211,21 @@ impl ApiClient {
         self.apply_parameters(&mut payload, &variant.json)?;
         if perplexity_search.is_some() {
             payload.as_object_mut().unwrap().remove("n_probs");
+        }
+
+        if *gbnf {
+            self.apply_parameters(
+                &mut payload,
+                &Some(EndpointJson {
+                    json: std::collections::HashMap::from([(
+                        "grammar".to_string(),
+                        serde_json::json!(format!(
+                            r#"root ::= "{}\n" .*"#,
+                            ConflictResolver::PATCHED_CODE_START
+                        )),
+                    )]),
+                }),
+            )?;
         }
 
         self.retry_request_perplexity_search(
@@ -324,10 +340,13 @@ impl ApiClient {
     }
 
     async fn query_openai(&self, request: &ApiRequest) -> Result<ApiResponse> {
-        let (variants, no_chat) = match &self.endpoint.config {
+        let (variants, no_chat, gbnf) = match &self.endpoint.config {
             EndpointTypeConfig::OpenAI {
-                variants, no_chat, ..
-            } => (variants, no_chat),
+                variants,
+                no_chat,
+                gbnf,
+                ..
+            } => (variants, no_chat, gbnf),
             _ => panic!("cannot happen"),
         };
 
@@ -344,7 +363,7 @@ impl ApiClient {
             let mut variant_responses = Vec::new();
             loop {
                 variant_responses.push(
-                    self.query_openai_variant(request, variant, no_chat, &mut perplexity)
+                    self.query_openai_variant(request, variant, no_chat, gbnf, &mut perplexity)
                         .await,
                 );
                 if perplexity.is_empty() {

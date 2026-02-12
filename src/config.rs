@@ -76,6 +76,8 @@ pub enum EndpointTypeConfig {
         variants: Option<Vec<EndpointVariants>>,
         #[serde(default)]
         no_chat: bool, // false: /v1/chat/completions true /v1/completions
+        #[serde(default)]
+        gbnf: bool,
     },
     #[serde(rename = "anthropic")]
     Anthropic {

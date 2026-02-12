@@ -172,6 +172,19 @@ The layout can be configured either at the endpoint level or in individual varia
 
 ---
 
+## 🛠️ llama.cpp GBNF Grammar Support
+
+To enable llama.cpp GBNF grammar to OpenAI compatible endpoints, add the `gbnf: true` parameter:
+
+```yaml
+endpoints:
+  - name: "llama.cpp vulkan"
+    url: "http://localhost:8811/v1/chat/completions"
+    type: "openai"
+    gbnf: true
+    # ... other configuration parameters
+```
+
 ## 🛠 Installation
 
 ### Fedora
