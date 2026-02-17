@@ -631,11 +631,16 @@ impl ApiClient {
                     );
                     return Err(anyhow::anyhow!("Invalid patchpal jsonrpc version"));
                 }
+                let n_beams = match &self.endpoint.config {
+                    EndpointTypeConfig::Patchpal { n_beams, .. } => *n_beams,
+                    _ => panic!("cannot happen"),
+                };
                 let responses: Vec<_> = json_response
                     .get("result")
                     .and_then(|v| v.as_array())
                     .context("Failed to extract content from patchpal response")?
                     .iter()
+                    .take(n_beams as usize)
                     .map(|v| {
                         (
                             v.get(0)

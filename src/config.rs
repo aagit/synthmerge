@@ -87,7 +87,13 @@ pub enum EndpointTypeConfig {
     Patchpal {
         #[serde(default)]
         telemetry: bool,
+        #[serde(default = "default_n_beams")]
+        n_beams: u32,
     },
+}
+
+fn default_n_beams() -> u32 {
+    3
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

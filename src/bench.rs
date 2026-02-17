@@ -675,10 +675,10 @@ impl Bench {
                         model_names.insert(endpoint.name.clone());
                     }
                 }
-                EndpointTypeConfig::Patchpal { .. } => {
-                    // For patchpal, we have 3 variants (as per existing logic)
+                EndpointTypeConfig::Patchpal { n_beams, .. } => {
+                    // For patchpal, we have n_beams variants
                     model_names.insert(endpoint.name.to_string());
-                    for y in 1..3 {
+                    for y in 1..*n_beams {
                         model_names.insert(format!("{} (#{})", endpoint.name, y));
                     }
                 }

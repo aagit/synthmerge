@@ -45,6 +45,7 @@
   - Temperature, top_p, top_k, min_p sampling parameters
   - Context handling options (context: no_diff: no_training: layout: flags)
   - Custom JSON parameters that can be injected into the request payload from the YAML configuration (either at the endpoint level or in each variant)
+  - Number of beams for Patchpal AI endpoint (n_beams)
 
 - **Results Deduplication**  
   Consolidates identical solutions and displays model and/or parameter variant agreement

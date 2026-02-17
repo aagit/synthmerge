@@ -38,7 +38,10 @@ impl Telemetry {
             )
         });
         if let Some(e) = patchpal_endpoint
-            && let EndpointTypeConfig::Patchpal { telemetry } = &e.config
+            && let EndpointTypeConfig::Patchpal {
+                telemetry,
+                n_beams: _,
+            } = &e.config
             && !telemetry
         {
             patchpal_endpoint = None;
