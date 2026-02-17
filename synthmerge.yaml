@@ -66,11 +66,6 @@ endpoints:
     json:
       model: "gemini-3-flash-preview"
       reasoning_effort: "none"
-    variants:
-      - name: "default"
-      - name: "no_diff"
-        context:
-          no_diff: true
 
   - name: "llama.cpp vulkan minimal"
     url: "http://localhost:8811/v1/chat/completions"
