@@ -331,12 +331,18 @@ Model: Gemini 2.5 Pro (high) # reasoning_effort: high
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan UD-Q6_K_XL
 Model: Qwen3-Coder-Next (default)
-  Accuracy: 53.32% (602/1129)
-  Accuracy (aligned): 58.64% (662/1129)
-  Accuracy (stripped): 61.74% (697/1129)
-  Error Rate: 3.72% (42/1129)
-  Average tokens: 4036.88
-  Average duration: 52.53 s
+Model: llama.cpp vulkan
+  Accuracy: 52.97% (598/1129)
+  Accuracy (aligned): 59.61% (673/1129)
+  Accuracy (stripped): 62.62% (707/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 4241.78
+  Average duration: 8.52 s
+  Average prob: 6.7% (+- 39.6)
+  Average prob (incorrect): 1.6% (+- 31.2)
+  Average prob (stripped): 15.6% (+- 39.3)
+  Average prob (aligned): 17.3% (+- 39.1)
+  Average prob (correct): 21.7% (+- 38.3)
 
 Model: Gemini 2.5 Flash (none no_diff) # reasoning_effort: none
   Accuracy: 53.06% (599/1129)
