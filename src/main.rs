@@ -46,47 +46,60 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    // Check if we're in a cherry-pick and extract commit if needed
-    let git_diff = if let Some(commit_hash) = git_utils.find_commit_hash()? {
-        log::info!("Extracting diff for commit {}", commit_hash);
-        git_utils.extract_diff(&commit_hash)?
-    } else {
-        None
-    };
+    loop {
+        // Check if we're in a cherry-pick and extract commit if needed
+        let git_diff = if let Some(commit_hash) = git_utils.find_commit_hash()? {
+            log::info!("Extracting diff for commit {}", commit_hash);
+            git_utils.extract_diff(&commit_hash)?
+        } else {
+            None
+        };
 
-    // Check if there are conflicts
-    let conflicts = git_utils.find_conflicts()?;
+        // Check if there are conflicts
+        let conflicts = git_utils.find_conflicts()?;
 
-    if conflicts.is_empty() {
-        println!("No conflicts found.");
-        return Ok(());
-    }
+        if conflicts.is_empty() {
+            println!("No conflicts found.");
+            if args.continue_op && git_utils.continue_operation(true)? {
+                continue;
+            }
+            return Ok(());
+        }
 
-    println!("Found {} conflicts to resolve", conflicts.len());
+        println!("Found {} conflicts to resolve", conflicts.len());
 
-    // Resolve conflicts using AI
-    let resolver = ConflictResolver::new(
-        ContextLines {
-            code_context_lines: args.code_context_lines,
-            diff_context_lines: args.diff_context_lines,
-            patch_context_lines: args.patch_context_lines,
-        },
-        &config,
-        git_diff,
-        false,
-    );
-    let resolved_conflicts = resolver.resolve_conflicts(&conflicts).await?.0;
+        // Resolve conflicts using AI
+        let resolver = ConflictResolver::new(
+            ContextLines {
+                code_context_lines: args.code_context_lines,
+                diff_context_lines: args.diff_context_lines,
+                patch_context_lines: args.patch_context_lines,
+            },
+            &config,
+            git_diff,
+            false,
+        );
+        let resolved_conflicts = resolver.resolve_conflicts(&conflicts).await?.0;
 
-    if args.vibe {
-        git_utils.apply_vibe_resolution(&conflicts, &resolved_conflicts)?;
-    } else {
-        git_utils.apply_resolved_conflicts(&resolved_conflicts)?;
-    }
+        let mut repeat = false;
+        if args.vibe {
+            git_utils.apply_vibe_resolution(&conflicts, &resolved_conflicts)?;
+            if args.continue_op {
+                repeat = git_utils.continue_operation(false)?;
+            }
+        } else {
+            git_utils.apply_resolved_conflicts(&resolved_conflicts)?;
+        }
 
-    #[cfg(feature = "telemetry")]
-    {
-        let telemetry = telemetry::Telemetry::new(&config, &conflicts, &resolved_conflicts);
-        telemetry.submit().await?;
+        #[cfg(feature = "telemetry")]
+        {
+            let telemetry = telemetry::Telemetry::new(&config, &conflicts, &resolved_conflicts);
+            telemetry.submit().await?;
+        }
+
+        if !repeat {
+            break;
+        }
     }
 
     Ok(())
