@@ -514,7 +514,7 @@ impl Bench {
                 }
                 tx.try_send(exit_code)
                     .unwrap_or_else(|_| std::process::exit(exit_code));
-                println!("Saving checkpoint and exiting...");
+                println!(" Saving checkpoint and exiting...");
             }
         });
 
