@@ -180,6 +180,9 @@ variants:
   - name: "no_diff"
     context:
       no_diff: true
+  - name: "no_training"
+    context:
+      no_training: true
 ```
 
 The layout can be configured either at the endpoint level or in individual variants, but not both simultaneously in the same endpoint.
