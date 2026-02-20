@@ -107,11 +107,21 @@ Used in `smerge-diff-base-upper' and related functions."
   "Face for the base code.")
 (defvar smerge-base-face 'smerge-base)
 
+(defface smerge-ai
+  '((((class color) (min-colors 88) (background light))
+     :background "#ffffaa" :extend t)
+    (((class color) (min-colors 88) (background dark))
+     :background "#221122" :extend t)
+    (((class color))
+     :foreground "cyan" :extend t))
+  "Face for the base code.")
+(defvar smerge-ai-face 'smerge-ai)
+
 (defface smerge-markers
   '((((background light))
-     (:background "grey85" :extend t))
+     (:background "grey90" :extend t))
     (((background dark))
-     (:background "grey30" :extend t)))
+     (:background "grey10 " :extend t)))
   "Face for the conflict markers.")
 (defvar smerge-markers-face 'smerge-markers)
 
@@ -152,6 +162,7 @@ Used in `smerge-diff-base-upper' and related functions."
   "l" #'smerge-keep-lower
   "m" #'smerge-keep-upper               ; for the obsolete keep-mine
   "u" #'smerge-keep-upper
+  "i" #'smerge-keep-ai
   "E" #'smerge-ediff
   "C" #'smerge-combine-with-next
   "R" #'smerge-refine
@@ -222,6 +233,8 @@ Used in `repeat-mode'."
      :active (smerge-check 1)]
     ["Keep Lower" smerge-keep-lower :help "Keep `lower' version"
      :active (smerge-check 3)]
+    ["Keep AI" smerge-keep-ai :help "Keep `ai' version"
+     :active (smerge-check 4)]
     "--"
     ["Diff Base/Upper" smerge-diff-base-upper
      :help "Diff `base' and `upper' for current conflict"
@@ -232,6 +245,9 @@ Used in `repeat-mode'."
     ["Diff Upper/Lower" smerge-diff-upper-lower
      :help "Diff `upper' and `lower' for current conflict"
      :active (smerge-check 1)]
+    ["Diff Upper/AI" smerge-diff-upper-ai
+     :help "Diff `upper' and `ai' for current conflict"
+     :active (smerge-check 4)]
     "--"
     ["Invoke Ediff" smerge-ediff
      :help "Use Ediff to resolve the conflicts"
@@ -262,16 +278,18 @@ Used in `repeat-mode'."
      (1 smerge-upper-face prepend t)
      (2 smerge-base-face prepend t)
      (3 smerge-lower-face prepend t)
+     (4 smerge-ai-face prepend t)
      ;; FIXME: `keep' doesn't work right with syntactic fontification.
      (0 smerge-markers-face keep)
-     (4 nil t t)
-     (5 nil t t)))
+     (5 nil t t)
+     (6 nil t t)))
   "Font lock patterns for `smerge-mode'.")
 
 (defconst smerge-begin-re "^<<<<<<< \\(.*\\)\n")
 (defconst smerge-end-re "^>>>>>>> \\(.*\\)\n")
 (defconst smerge-base-re "^||||||| \\(.*\\)\n")
 (defconst smerge-lower-re "^=======\n")
+(defconst smerge-ai-re "^&&&&&&& \\(.*\\)\n")
 
 (defvar smerge-conflict-style nil
   "Keep track of which style of conflict is in use.
@@ -288,7 +306,7 @@ Can be nil if the style is undecided, or else:
   (if diff-refine
       (condition-case nil (smerge-refine) (error nil))))
 
-(defconst smerge-match-names ["conflict" "upper" "base" "lower"])
+(defconst smerge-match-names ["conflict" "upper" "base" "lower" "ai"])
 
 (defun smerge-ensure-match (n)
   (unless (match-end n)
@@ -329,7 +347,7 @@ Can be nil if the style is undecided, or else:
   (interactive)
   (smerge-match-conflict)
   (let ((ends nil))
-    (dolist (i '(3 2 1 0))
+    (dolist (i '(4 3 2 1 0))
       (push (if (match-end i) (copy-marker (match-end i) t)) ends))
     (setq ends (apply #'vector ends))
     (goto-char (aref ends 0))
@@ -339,14 +357,14 @@ Can be nil if the style is undecided, or else:
       (let ((match-data (mapcar (lambda (m) (if m (copy-marker m)))
 				(match-data))))
 	;; First copy the in-between text in each alternative.
-	(dolist (i '(1 2 3))
+	(dolist (i '(1 2 3 4))
 	  (when (aref ends i)
 	    (goto-char (aref ends i))
 	    (insert-buffer-substring (current-buffer)
 				     (aref ends 0) (car match-data))))
 	(delete-region (aref ends 0) (car match-data))
 	;; Then move the second conflict's alternatives into the first.
-	(dolist (i '(1 2 3))
+	(dolist (i '(1 2 3 4))
 	  (set-match-data match-data)
 	  (when (and (aref ends i) (match-end i))
 	    (goto-char (aref ends i))
@@ -737,10 +755,27 @@ this keeps \"UUU\"."
   (smerge-keep-n 1)
   (smerge-auto-leave))
 
+(defun smerge-keep-ai ()
+  "Keep the AI version of a merge conflict.
+In a conflict that looks like:
+  <<<<<<<
+  UUU
+  =======
+  LLL
+  &&&&&&&
+  AI
+  >>>>>>>
+this keeps \"AI\"."
+  (interactive)
+  (smerge-match-conflict)
+  (smerge-ensure-match 4)
+  (smerge-keep-n 4)
+  (smerge-auto-leave))
+
 (define-obsolete-function-alias 'smerge-keep-mine #'smerge-keep-upper "26.1")
 
 (defun smerge-get-current ()
-  (let ((i 3))
+  (let ((i 4))
     (while (or (not (match-end i))
 	       (< (point) (match-beginning i))
 	       (> (point) (match-end i)))
@@ -763,14 +798,14 @@ this keeps \"UUU\"."
   (let ((i (smerge-get-current)))
     (if (<= i 0) (error "Not inside a version")
       (let ((left nil))
-	(dolist (n '(3 2 1))
-	  (if (and (match-end n) (/= (match-end n) (match-end i)))
-	      (push n left)))
-	(if (and (cdr left)
-		 (/= (match-end (car left)) (match-end (cadr left))))
-	    (ding)			;We don't know how to do that.
-	  (smerge-keep-n (car left))
-	  (smerge-auto-leave))))))
+        (dolist (n '(4 3 2 1))
+          (if (and (match-end n) (/= (match-end n) (match-end i)))
+              (push n left)))
+        (if (and (cdr left)
+                 (/= (match-end (car left)) (match-end (cadr left))))
+            (ding)            ;We don't know how to do that.
+          (smerge-keep-n (car left))
+          (smerge-auto-leave))))))
 
 (defun smerge-diff-base-upper ()
   "Diff `base' and `upper' version in current conflict region."
@@ -793,6 +828,11 @@ this keeps \"UUU\"."
   (interactive)
   (smerge-diff 1 3))
 
+(defun smerge-diff-upper-ai ()
+  "Diff `upper' and `ai' version in current conflict region."
+  (interactive)
+  (smerge-diff 1 4))
+
 (define-obsolete-function-alias 'smerge-diff-mine-other
   #'smerge-diff-upper-lower "26.1")
 
@@ -803,6 +843,7 @@ The submatches contain:
  1:  upper version of the code.
  2:  base version of the code.
  3:  lower version of the code.
+ 4:  AI version of the code (if any).
 An error is raised if not inside a conflict."
   (save-excursion
     (condition-case nil
@@ -829,7 +870,8 @@ An error is raised if not inside a conflict."
 	       (upper-end (match-beginning 0))
 	       (lower-start (match-end 0))
 
-	       base-start base-end)
+	       base-start base-end
+	       ai-start ai-end)
 
 	  ;; handle the various conflict styles
 	  (cond
@@ -866,10 +908,19 @@ An error is raised if not inside a conflict."
 	    (setq upper-start lower-start)
 	    (setq upper-end   lower-end)))
 
+	  ;; Check for AI solutions
+	  (when (re-search-forward smerge-ai-re end t)
+	    (setq ai-end lower-end)
+	    (setq lower-end (match-beginning 0))
+	    (setq ai-start (match-end 0))
+	    (when (re-search-forward smerge-ai-re end t)
+	      (setq ai-end (match-beginning 0))))
+
 	  (store-match-data (list start end
 				  upper-start upper-end
 				  base-start base-end
 				  lower-start lower-end
+				  ai-start ai-end
 				  (when base-start (1- base-start)) base-start
 				  (1- lower-start) lower-start))
 	  t)
@@ -1356,7 +1407,19 @@ repeating the command will highlight other two parts."
 			 (unless smerge-use-changed-face
 			   '((smerge . refine) (font-lock-face . smerge-refined-removed)))
 			 (unless smerge-use-changed-face
-			   '((smerge . refine) (font-lock-face . smerge-refined-added))))))
+			   '((smerge . refine) (font-lock-face . smerge-refined-added))))
+    ;; If missing part is 1 and there's an AI version (4), also show diff between 4 and 1
+    (smerge-match-conflict)
+    (when (and (eq part 1) (match-end 4))
+      (smerge-refine-regions (match-beginning 1) (match-end 1)
+                           (match-beginning 4)  (match-end 4)
+                           (if smerge-use-changed-face
+			       '((smerge . refine) (font-lock-face . smerge-refined-change)))
+			       nil
+			       (unless smerge-use-changed-face
+				 '((smerge . refine) (font-lock-face . smerge-refined-removed)))
+			       (unless smerge-use-changed-face
+				 '((smerge . refine) (font-lock-face . smerge-refined-added)))))))
 
 (defun smerge--refine-other-pos (pos)
   (let* ((covering-ol
@@ -1659,7 +1722,7 @@ with a \\[universal-argument] prefix, makes up a 3-way conflict."
 
 (defconst smerge-parsep-re
   (concat smerge-begin-re "\\|" smerge-end-re "\\|"
-          smerge-base-re "\\|" smerge-lower-re "\\|"))
+          smerge-base-re "\\|" smerge-lower-re "\\|" smerge-ai-re))
 
 ;;;###autoload
 (define-minor-mode smerge-mode
