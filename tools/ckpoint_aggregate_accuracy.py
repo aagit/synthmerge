@@ -62,8 +62,7 @@ def calculate_aggregate_stats(rows: List[dict]) -> Tuple[float, float, float]:
 def main():
     if len(sys.argv) < 3:
         print(
-            "Usage: python aggregate_stats.py <model_regex> "
-            "<file1.csv> [file2.csv] ..."
+            "Usage: python aggregate_stats.py <model_regex> <file1.csv> [file2.csv] ..."
         )
         sys.exit(1)
 
@@ -83,17 +82,16 @@ def main():
         rows = read_csv(filename, model_filter)
         all_rows.extend(rows)
 
-    accuracy, accuracy_aligned, \
-        accuracy_stripped = calculate_aggregate_stats(all_rows)
+    accuracy, accuracy_aligned, accuracy_stripped = calculate_aggregate_stats(all_rows)
 
     # Print results to stdout as CSV
     writer = csv.writer(sys.stdout)
     writer.writerow(["accuracy", "accuracy_aligned", "accuracy_stripped"])
     writer.writerow(
         [
-            f"{accuracy*100:.6f}",
-            f"{accuracy_aligned*100:.6f}",
-            f"{accuracy_stripped*100:.6f}",
+            f"{accuracy * 100:.6f}",
+            f"{accuracy_aligned * 100:.6f}",
+            f"{accuracy_stripped * 100:.6f}",
         ]
     )
 
