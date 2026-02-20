@@ -202,6 +202,40 @@ endpoints:
     # ... other configuration parameters
 ```
 
+## 🎨 Emacs Integration
+
+`synthmerge` ships with a modified `smerge-mode` plugin for that provides a visual interface to review and select AI-generated solutions alongside the original conflict markers.
+
+### smerge-refine Enhancement
+
+The enhanced `smerge-refine` feature shows fine-grained differences between:
+
+- **Base → Remote**: Highlights the word diff of the "patch" from section 2 to 3
+- **Local → AI**: Highlights the word diff between the "code" "ai patched code" from section 1 to 4
+
+This simutaneous dual word diff visualization helps you quickly assess:
+- What are the remote changes that needs to be applied to the local code
+- What changes have been applied by the AI to the local code
+
+### Interactive Selection
+
+You can interact with the refined view in several ways:
+
+1. **Right-click on AI solution**: Opens a context menu to keep the AI version
+2. **`M-x smerge-keep-current`**: Accept the version currently under point
+3. **`M-x smerge-keep-ai`**: Explicitly select the AI-generated solution
+4. **Navigation**: Use the standard smerge-mode `smerge-vc-next-conflict` `smerge-next` `smerge-prev`
+
+This makes it easy to:
+- Verify the AI properly resolved the conflict
+- Check that your local changes are preserved
+- Understand exactly what the AI modified
+- Quickly accept or reject the AI solution
+
+```elisp
+(add-to-list 'load-path "~/.../synthmerge/emacs/")
+```
+
 ## 🛠 Installation
 
 ### Fedora
