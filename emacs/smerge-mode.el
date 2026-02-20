@@ -75,6 +75,10 @@ Used in `smerge-diff-base-upper' and related functions."
   "Non-nil means to leave `smerge-mode' when the last conflict is resolved."
   :type 'boolean)
 
+(defcustom smerge-refine-all t
+  "Non-nil means to call `smerge-refine' during the smerge-mode loop that finds all conflicts."
+  :type 'boolean)
+
 (defface smerge-upper
   '((((class color) (min-colors 88) (background light))
      :background "#ffdddd" :extend t)
@@ -1740,7 +1744,9 @@ with a \\[universal-argument] prefix, makes up a 3-way conflict."
 	(save-excursion
           (with-demoted-errors "%S" ;Those things do happen, occasionally.
             (font-lock-fontify-region
-             (match-beginning 0) (match-end 0) nil))))))
+             (match-beginning 0) (match-end 0) nil))
+	  (if smerge-refine-all
+	      (smerge-refine))))))
   (if (string-match (regexp-quote smerge-parsep-re) paragraph-separate)
       (unless smerge-mode
         (setq-local paragraph-separate
