@@ -23,6 +23,10 @@ struct Args {
     /// Number of context lines of the patch
     #[arg(long = "patch-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
     patch_context_lines: u32,
+
+    /// Automatically resolve conflicts and update the git index.
+    #[arg(long = "vibe", default_value = "false")]
+    vibe: bool,
 }
 
 // Local Variables:

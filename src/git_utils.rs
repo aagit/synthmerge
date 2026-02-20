@@ -524,15 +524,122 @@ impl GitUtils {
         Ok(())
     }
 
+    /// Apply vibe resolution - fully resolve conflicts and update git index
+    pub fn apply_vibe_resolution(
+        &self,
+        conflicts: &[Conflict],
+        resolved_conflicts: &[ResolvedConflict],
+    ) -> Result<()> {
+        let resolved_conflicts = Self::deduplicate_conflicts(resolved_conflicts);
+
+        // Group conflicts by file
+        let mut conflicts_by_file = std::collections::HashMap::new();
+        for conflict in conflicts {
+            conflicts_by_file
+                .entry(&conflict.file_path)
+                .or_insert_with(Vec::new)
+                .push(conflict);
+        }
+
+        let mut unresolved_files = false;
+        // Process each file
+        for (file_path, file_conflicts) in &conflicts_by_file {
+            println!("Processing file: {}", file_path);
+
+            // Read the file
+            let path = Path::new(self.git_root.as_ref().unwrap()).join(file_path);
+            let content = fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read file: {}", file_path))?;
+
+            // Split content into lines
+            let mut lines: Vec<String> = content
+                .split_inclusive('\n')
+                .map(|s| s.to_string())
+                .collect();
+
+            // Sort conflicts by start line (ascending)
+            let mut sorted_conflicts: Vec<_> = file_conflicts.iter().collect();
+            sorted_conflicts.sort_by_key(|c| c.start_line);
+
+            // Process conflicts in reverse order to maintain correct line numbers
+            for conflict in sorted_conflicts.iter().rev() {
+                let resolved_conflict = resolved_conflicts
+                    .iter()
+                    .find(|rc| rc.conflict == ***conflict);
+                if resolved_conflict.is_none() {
+                    unresolved_files = true;
+                    continue;
+                }
+                let conflict = resolved_conflict.unwrap();
+                println!(
+                    "Applying vibe resolution for: {}:{}",
+                    conflict.conflict.file_path, conflict.conflict.start_line
+                );
+
+                // Find the conflict markers
+                let end_marker = Self::create_end_marker(conflict.conflict.marker_size);
+
+                // Find the start and end of the conflict
+                let start_line = conflict.conflict.start_line - 1; // Convert to 0-based index
+                let mut end_line = start_line;
+
+                // Find the end marker
+                for (i, line) in lines[start_line..].iter().enumerate() {
+                    if line.starts_with(&end_marker) {
+                        end_line = start_line + i;
+                        break;
+                    }
+                }
+
+                // Replace the entire conflict with the resolved version
+                let resolved_lines: Vec<String> = conflict
+                    .resolved_version
+                    .lines()
+                    .map(|s| s.to_string() + "\n")
+                    .collect();
+
+                // Replace the conflict
+                lines.splice(start_line..=end_line, resolved_lines);
+            }
+
+            // Write back to file
+            let updated_content = lines.join("");
+            fs::write(&path, updated_content)
+                .with_context(|| format!("Failed to write file: {}", file_path))?;
+        }
+
+        // Add Assisted-by line to merge message
+        self.update_merge_message()?;
+
+        // Update git index if all conflicts are resolved
+        if !unresolved_files {
+            let output = GitCommand::new("git")
+                .args(["add", "-u"])
+                .output()
+                .context(format!("Failed to execute git add -u ."))?;
+
+            if !output.status.success() {
+                return Err(anyhow::anyhow!(
+                    "Git add -u failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            println!("Updated git index");
+        }
+
+        Ok(())
+    }
+
     fn deduplicate_conflicts(conflicts: &[ResolvedConflict]) -> Vec<ResolvedConflict> {
         use std::collections::HashMap;
-        let mut map: HashMap<(String, usize), Vec<&ResolvedConflict>> = HashMap::new();
+        let mut map: HashMap<(String, usize, &str), Vec<&ResolvedConflict>> = HashMap::new();
 
-        // Group conflicts by resolved_version and start_line
+        // Group conflicts by resolved_version, start_line and file_path
         for conflict in conflicts {
             map.entry((
                 conflict.resolved_version.clone(),
                 conflict.conflict.start_line,
+                &conflict.conflict.file_path,
             ))
             .or_default()
             .push(conflict);
@@ -540,7 +647,7 @@ impl GitUtils {
 
         // For each group, create a new conflict with combined model names
         let mut result = Vec::new();
-        for ((resolved_version, _), group) in map {
+        for ((resolved_version, _, _), group) in map {
             let model = Self::combine_model_names(group.as_slice());
 
             // Use the first conflict in the group as the base
@@ -583,19 +690,58 @@ impl GitUtils {
             });
         }
 
-        // Restore original order
+        // Sort by number of models that agree on the resolved conflict (descending)
+        // When equal, maintain original order
         let mut ordered_result = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
+        // First pass: collect all unique resolved conflicts with their original order positions
+        let mut unique_conflicts: Vec<(String, &str, usize, usize)> = Vec::new();
         for original in conflicts {
-            let key = (&original.resolved_version, original.conflict.start_line);
-            if seen.insert(key)
-                && let Some(pos) = result
+            let key = (
+                &original.resolved_version,
+                original.conflict.start_line,
+                &original.conflict.file_path,
+            );
+            if seen.insert(key) {
+                let pos = result
                     .iter()
-                    .position(|r| (&r.resolved_version, r.conflict.start_line) == key)
-            {
-                ordered_result.push(result[pos].clone());
+                    .position(|r| {
+                        (
+                            &r.resolved_version,
+                            r.conflict.start_line,
+                            &r.conflict.file_path,
+                        ) == key
+                    })
+                    .unwrap();
+                let num_models = result[pos].deduplicated_conflicts.len();
+                unique_conflicts.push((
+                    result[pos].resolved_version.clone(),
+                    &result[pos].conflict.file_path,
+                    result[pos].conflict.start_line,
+                    num_models,
+                ));
             }
+        }
+
+        // Sort by file, line, number of models (descending) and
+        // finally with the original "endpoint" order with a stable
+        // sort
+        unique_conflicts.sort_by(|a, b| a.1.cmp(b.1).then(a.2.cmp(&b.2)).then(b.3.cmp(&a.3)));
+
+        // Build the final ordered result
+        for (resolved_version, start_line, file_path, _) in unique_conflicts {
+            let pos = result
+                .iter()
+                .position(|r| {
+                    (
+                        &r.resolved_version,
+                        r.conflict.start_line,
+                        r.conflict.file_path.as_str(),
+                    ) == (&resolved_version, file_path, start_line)
+                })
+                .unwrap();
+            ordered_result.push(result[pos].clone());
         }
 
         ordered_result

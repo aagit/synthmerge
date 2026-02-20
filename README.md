@@ -66,6 +66,9 @@
 - **Context Lines Configuration**  
   Configurable context lines for code, diff, and patch to control the amount of surrounding information provided to AI models
 
+- **Vibe Coding Mode**  
+  Automatically resolve all conflicts and update the git index with `--vibe` flag. **Warning**: Vibe Coding is generally unsafe and should only be used for batch automation and verification purposes.
+
 ---
 
 ## 🛠 How It Works
@@ -111,7 +114,9 @@ git diff --name-only --diff-filter=U
 # ... or linearized in a single buffer to edit with ripgrep-edit
 rg-edit -E vim -C10 -U -e '(?s)^<<<<<<<+ .*?^\|\|\|\|\|\|\|+ .*?^>>>>>>>+ '
 rg-edit -E emacsclient -C10 -U -e '(?s)^<<<<<<<+ .*?^\|\|\|\|\|\|\|+ .*?^>>>>>>>+ '
-```
+
+# For automatic resolution and git index update, use the `--vibe` flag
+synthmerge --vibe
 
 ---
 
