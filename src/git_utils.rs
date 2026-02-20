@@ -53,10 +53,10 @@ impl GitCommand {
             .collect::<Vec<_>>()
             .join(" ");
         let output = self.command.output().context("Failed to execute command")?;
-        log::trace!("GitCommand: {program} {args_str} {{{}}}", output.status);
+        log::debug!("GitCommand: {program} {args_str} {{{}}}", output.status);
         if !output.status.success() {
-            log::trace!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-            log::trace!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            log::debug!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            log::debug!("stderr: {}", String::from_utf8_lossy(&output.stderr));
         }
         Ok(output)
     }
