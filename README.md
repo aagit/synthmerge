@@ -310,12 +310,17 @@ Model: Gemini 3 Flash (none no_diff) # reasoning_effort: none
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan UD-Q6_K_XL
 Model: Devstral-Small-2-24B-Instruct-2512 (default)
-  Accuracy: 56.60% (639/1129)
-  Accuracy (aligned): 65.19% (736/1129)
-  Accuracy (stripped): 67.94% (767/1129)
-  Error Rate: 0.09% (1/1129)
-  Average tokens: 4645.61
-  Average duration: 11.90 s
+  Accuracy: 57.22% (646/1129)
+  Accuracy (aligned): 64.30% (726/1129)
+  Accuracy (stripped): 67.32% (760/1129)
+  Error Rate: 0.27% (3/1129)
+  Average tokens: 4583.82
+  Average duration: 14.04 s
+  Average prob: 2.1% (+- 31.0)
+  Average prob (incorrect): 0.4% (+- 21.8)
+  Average prob (stripped): 4.8% (+- 33.0)
+  Average prob (aligned): 5.1% (+- 33.1)
+  Average prob (correct): 6.4% (+- 33.6)
 
 Model: Gemini 2.5 Pro (high) # reasoning_effort: high
   Accuracy: 55.18% (623/1129)
