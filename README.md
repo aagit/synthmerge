@@ -241,6 +241,7 @@ A Fedora Copr package is available:
 
 ## 🎥 Demo
 
+> ![synthmerge-demo backtest_stable](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.27-backtest_stable.webm)
 > ![synthmerge-demo vibe](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.27-vibe.webm)
 > ![synthmerge-demo](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8.webm)
 > ![synthmerge-demo with ripgrep-edit](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8-ripgrep-edit.webm)
