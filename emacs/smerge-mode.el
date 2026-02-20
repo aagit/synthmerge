@@ -744,7 +744,7 @@ this keeps \"UUU\"."
     (while (or (not (match-end i))
 	       (< (point) (match-beginning i))
 	       (> (point) (match-end i)))
-      (decf i))
+      (cl-decf i))
     i))
 
 (defun smerge-keep-current ()
