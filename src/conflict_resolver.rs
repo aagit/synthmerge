@@ -326,7 +326,20 @@ impl<'a> ConflictResolver<'a> {
                     for (multi, resolved_string) in resolved_strings.iter().enumerate() {
                         let model =
                             self.get_model_name_multi(endpoints, endpoint, variant, beam, multi);
-                        if !resolved_string.starts_with(&conflict.head_context) {
+                        let mut new_resolved_string = resolved_string.clone();
+
+                        let mut found_context = false;
+                        for _ in 0..conflict.nr_head_context_lines.saturating_sub(1).max(1) {
+                            if new_resolved_string.starts_with(&conflict.head_context) {
+                                found_context = true;
+                                break;
+                            }
+                            // if conflict.head_context.trim().is_empty() {
+                            //     break;
+                            // }
+                            new_resolved_string = format!("\n{}", new_resolved_string);
+                        }
+                        if !found_context {
                             log::warn!("Skipping {} - doesn't start with head context", model);
                             let len = conflict.head_context.len().min(resolved_string.len());
                             let diff = ConflictResolver::create_diff(
@@ -334,13 +347,24 @@ impl<'a> ConflictResolver<'a> {
                                 &resolved_string[..len],
                                 1,
                             );
-                            log::trace!("HeadContextDiff:\n{}", diff);
+                            log::info!("HeadContextDiff:\n{}", diff);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
 
                             continue;
                         }
                         let leading_tail_context = &format!("\n{}", &conflict.tail_context);
-                        if !resolved_string.ends_with(leading_tail_context) {
+                        let mut found_context = false;
+                        for _ in 0..conflict.nr_tail_context_lines.saturating_sub(1).max(1) {
+                            if new_resolved_string.ends_with(leading_tail_context) {
+                                found_context = true;
+                                break;
+                            }
+                            // if conflict.head_context.trim().is_empty() {
+                            //     break;
+                            // }
+                            new_resolved_string = format!("{}\n", resolved_string);
+                        }
+                        if !found_context {
                             log::warn!("Skipping {} - doesn't end with tail context", model);
                             let diff = ConflictResolver::create_diff(
                                 &resolved_string[resolved_string
@@ -350,10 +374,11 @@ impl<'a> ConflictResolver<'a> {
                                 leading_tail_context,
                                 1,
                             );
-                            log::trace!("TailContextDiff:\n{}", diff);
+                            log::info!("TailContextDiff:\n{}", diff);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             continue;
                         }
+                        let resolved_string = new_resolved_string;
                         //reduce resolved to the range between head_context and tail_context
                         let resolved_content = resolved_string[conflict.head_context.len()
                             ..resolved_string.len() - conflict.tail_context.len()]
@@ -423,7 +448,7 @@ impl<'a> ConflictResolver<'a> {
 
 FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_code_end} instead of markdown fences.
 
-Do not alter the first {nr_head_context_lines} line{head_plural} and the last {nr_tail_context_lines} line{tail_plural}, keep all empty lines."#,
+Rewrite the {nr_head_context_lines} line{head_plural} after {code_start} and the {nr_tail_context_lines} line{tail_plural} before {code_end} exactly the same, including all empty lines."#,
             patch_start = Self::PATCH_START,
             patch_end = Self::PATCH_END,
             code_start = Self::CODE_START,
