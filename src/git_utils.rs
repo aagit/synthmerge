@@ -679,6 +679,7 @@ impl GitUtils {
                     .unwrap_or(0.0),
                 total_tokens,
                 logprob,
+                endpoint: group.iter().map(|c| c.endpoint).min().unwrap(),
                 deduplicated_conflicts: group
                     .into_iter()
                     .filter(|x| {
@@ -696,7 +697,7 @@ impl GitUtils {
         let mut seen = std::collections::HashSet::new();
 
         // First pass: collect all unique resolved conflicts with their original order positions
-        let mut unique_conflicts: Vec<(String, &str, usize, usize)> = Vec::new();
+        let mut unique_conflicts: Vec<(String, &str, usize, usize, usize)> = Vec::new();
         for original in conflicts {
             let key = (
                 &original.resolved_version,
@@ -720,17 +721,22 @@ impl GitUtils {
                     &result[pos].conflict.file_path,
                     result[pos].conflict.start_line,
                     num_models,
+                    result[pos].endpoint,
                 ));
             }
         }
 
         // Sort by file, line, number of models (descending) and
-        // finally with the original "endpoint" order with a stable
-        // sort
-        unique_conflicts.sort_by(|a, b| a.1.cmp(b.1).then(a.2.cmp(&b.2)).then(b.3.cmp(&a.3)));
+        // finally with the original "endpoint" order
+        unique_conflicts.sort_by(|a, b| {
+            a.1.cmp(b.1)
+                .then(a.2.cmp(&b.2))
+                .then(b.3.cmp(&a.3))
+                .then(a.4.cmp(&b.4))
+        });
 
         // Build the final ordered result
-        for (resolved_version, start_line, file_path, _) in unique_conflicts {
+        for (resolved_version, start_line, file_path, _, _) in unique_conflicts {
             let pos = result
                 .iter()
                 .position(|r| {
