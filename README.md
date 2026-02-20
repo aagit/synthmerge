@@ -69,6 +69,9 @@
 - **Vibe Coding Mode**  
   Automatically resolve all conflicts and update the git index with `--vibe` flag. **Warning**: Vibe Coding is generally unsafe and should only be used for batch automation and verification purposes.
 
+- **Vibe Continue Operation**  
+  Use `--continue` with `--vibe` to automatically commit and continue cherry-pick, rebase, revert, or merge operations after resolving conflicts.
+
 ---
 
 ## 🛠 How It Works
@@ -117,6 +120,11 @@ rg-edit -E emacsclient -C10 -U -e '(?s)^<<<<<<<+ .*?^\|\|\|\|\|\|\|+ .*?^>>>>>>>
 
 # For automatic resolution and git index update, use the `--vibe` flag
 synthmerge --vibe
+
+# For automatic resolution, git index update and continuing the operation
+git checkout -f v6.12 && git cherry-pick -x -m 1 v6.18-rc5..v6.18-rc6~2^2 || synthmerge --vibe --continue
+git rebase -i v6.18-rc5 v6.18-rc6~2^2 --onto v6.12 || synthmerge --vibe --continue
+```
 
 ---
 
@@ -230,6 +238,7 @@ A Fedora Copr package is available:
 
 ## 🎥 Demo
 
+> ![synthmerge-demo vibe](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.27-vibe.webm)
 > ![synthmerge-demo](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8.webm)
 > ![synthmerge-demo with ripgrep-edit](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8-ripgrep-edit.webm)
 > ![synthmerge-demo with vim](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8-vim.webm)

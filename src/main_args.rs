@@ -27,6 +27,10 @@ struct Args {
     /// Automatically resolve conflicts and update the git index.
     #[arg(long = "vibe", default_value = "false")]
     vibe: bool,
+
+    /// Continue the current cherry-pick, rebase, revert, or merge operation after resolving conflicts
+    #[arg(long = "continue", requires = "vibe", default_value = "false")]
+    continue_op: bool,
 }
 
 // Local Variables:

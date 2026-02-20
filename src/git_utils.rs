@@ -16,6 +16,13 @@ pub struct ContextLines {
     pub patch_context_lines: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct OperationHead {
+    pub file: String,
+    pub command: String,
+    pub path: PathBuf,
+}
+
 // Wrapper around Command to allow inheritance-like behavior
 pub struct GitCommand {
     command: Command,
@@ -613,21 +620,102 @@ impl GitUtils {
 
         // Update git index if all conflicts are resolved
         if !unresolved_files {
-            let output = GitCommand::new("git")
-                .args(["add", "-u"])
-                .output()
-                .context(format!("Failed to execute git add -u ."))?;
-
-            if !output.status.success() {
-                return Err(anyhow::anyhow!(
-                    "Git add -u failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ));
-            }
-            println!("Updated git index");
+            self.git_update_index()?;
         }
 
         Ok(())
+    }
+
+    /// Continue the current cherry-pick, rebase, revert, or merge operation
+    pub fn continue_operation(&self, no_conflicts: bool) -> Result<bool> {
+        // Check if we're in a cherry-pick, rebase, revert, or merge
+        let git_dir = self.git_dir.as_ref().unwrap();
+
+        // Find the most recent operation HEAD file
+        let operation = match self.find_operation_head(git_dir)? {
+            Some(op) => op,
+            None => return Ok(false),
+        };
+
+        if no_conflicts {
+            // there can be no conflicts but deleted files to add
+            self.git_update_index()?;
+        }
+
+        // Function to commit and continue operation
+        let commit_and_continue = |operation: &OperationHead| -> Result<bool> {
+            if operation.command == "rebase" {
+                // Commit the changes
+                println!("Committing changes");
+                let output = GitCommand::new("git")
+                    .args(["commit", "--no-edit"])
+                    .output()
+                    .context("Failed to execute git commit --no-edit")?;
+
+                if !output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    if !stdout.contains("nothing to commit")
+                        && !stdout.contains("nothing added to commit")
+                    {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        return Err(anyhow::anyhow!("Git commit --no-edit failed: {}", stderr));
+                    }
+                }
+            }
+
+            let mut subcmd = "--continue";
+            loop {
+                let before_head = std::fs::read_to_string(&operation.path)
+                    .with_context(|| format!("Failed to read {}", operation.file))?
+                    .trim()
+                    .to_string();
+                println!("Executing git {} {}", operation.command, subcmd);
+                let output = GitCommand::new("git")
+                    .args(vec![&operation.command, subcmd])
+                    .args(if operation.command != "rebase" {
+                        vec!["--no-edit"]
+                    } else {
+                        vec![]
+                    })
+                    .output()
+                    .context(format!(
+                        "Failed to execute git {} --continue",
+                        operation.command
+                    ))?;
+
+                if !output.status.success() {
+                    if String::from_utf8_lossy(&output.stderr).contains("git commit --allow-empty")
+                    {
+                        subcmd = "--skip";
+                        continue;
+                    }
+
+                    if !output.stderr.is_empty() {
+                        print!("{}", String::from_utf8_lossy(&output.stderr));
+                    }
+
+                    let after_head = std::fs::read_to_string(&operation.path)
+                        .with_context(|| format!("Failed to read {}", operation.file))?
+                        .trim()
+                        .to_string();
+
+                    log::debug!(
+                        "commit after_head: {} before_head: {}",
+                        after_head,
+                        before_head
+                    );
+
+                    // If operation --continue fails, retry synthmerge --vibe --continue
+                    return Ok(after_head != before_head || subcmd == "--skip");
+                }
+
+                break;
+            }
+
+            Ok(false)
+        };
+
+        commit_and_continue(&operation)
     }
 
     fn deduplicate_conflicts(conflicts: &[ResolvedConflict]) -> Vec<ResolvedConflict> {
@@ -821,6 +909,23 @@ impl GitUtils {
         combined_names.join(", ")
     }
 
+    /// Update the git index
+    fn git_update_index(&self) -> Result<()> {
+        let output = GitCommand::new("git")
+            .args(["add", "-u"])
+            .output()
+            .context("Failed to execute git add -u")?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Git add -u failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        println!("Updated git index");
+        Ok(())
+    }
+
     /// Get the git root directory
     fn get_git_root_uncached() -> Result<String> {
         let output = GitCommand::new("git")
@@ -939,51 +1044,69 @@ impl GitUtils {
             .context("Not running in a git repository")?;
 
         // Check for cherry-pick, merge, and rebase HEAD files
-        let mut head_files = Vec::new();
-        for &prefix in &["CHERRY_PICK", "MERGE", "REBASE", "REVERT"] {
-            head_files.push((
-                prefix,
-                Path::new(git_dir).join(format!("{}_{}", prefix, "HEAD")),
-            ));
-        }
+        let operation = self.find_operation_head(git_dir)?;
 
-        let mut content: Option<String> = None;
-        let mut latest_path: Option<(&str, PathBuf)> = None;
-        let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
+        let content = if let Some(operation) = operation {
+            let content = std::fs::read_to_string(&operation.path)
+                .with_context(|| format!("Failed to read {}", operation.file))?
+                .trim()
+                .to_string();
 
-        for (name, path) in head_files {
-            if Path::new(&path).exists() {
-                let metadata = std::fs::metadata(&path)
-                    .with_context(|| format!("Failed to get metadata for {}", name))?;
-                let file_time = metadata
-                    .modified()
-                    .with_context(|| format!("Failed to get modification time for {}", name))?;
-
-                if file_time > latest_time {
-                    latest_time = file_time;
-                    latest_path = Some((name, path));
-                }
-            }
-        }
-
-        if let Some((name, path)) = latest_path {
-            content = Some(
-                std::fs::read_to_string(&path)
-                    .with_context(|| format!("Failed to read {}", name))?
-                    .trim()
-                    .to_string(),
-            );
             // Check if it's a rebase
-            if name == "REBASE" {
+            if operation.file == "rebase" {
                 // Also check if the rebase message file exists
                 let rebase_msg_path = Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE);
                 if rebase_msg_path.exists() {
                     self.in_rebase = true;
                 }
+                if !self.in_rebase {
+                    log::warn!(
+                        "Rebase message file not found: {}",
+                        Self::REBASE_MESSAGE_FILE
+                    );
+                }
+            }
+
+            Some(content)
+        } else {
+            None
+        };
+
+        Ok(content)
+    }
+
+    /// Find the most recent operation HEAD file
+    fn find_operation_head(&self, git_dir: &str) -> Result<Option<OperationHead>> {
+        // Check each file and return the most recent one
+        let mut retval: Option<OperationHead> = None;
+        let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
+
+        for (file, command) in [
+            ("CHERRY_PICK_HEAD", "cherry-pick"),
+            ("REBASE_HEAD", "rebase"),
+            ("REVERT_HEAD", "revert"),
+            ("MERGE_HEAD", "merge"),
+        ] {
+            let path = Path::new(git_dir).join(file);
+            if path.exists() {
+                let metadata = std::fs::metadata(&path)
+                    .with_context(|| format!("Failed to get metadata for {}", file))?;
+                let file_time = metadata
+                    .modified()
+                    .with_context(|| format!("Failed to get modification time for {}", file))?;
+
+                if file_time > latest_time {
+                    latest_time = file_time;
+                    retval = Some(OperationHead {
+                        file: file.to_string(),
+                        command: command.to_string(),
+                        path,
+                    });
+                }
             }
         }
 
-        Ok(content)
+        Ok(retval)
     }
 
     /// Extract the patch from a specific commit hash
