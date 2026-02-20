@@ -157,13 +157,18 @@ impl GitUtils {
     /// Parse conflicts from a specific file
     fn parse_conflict_from_file(&self, file_path: &str) -> Result<Vec<Conflict>> {
         let path = Path::new(self.git_root.as_ref().unwrap()).join(file_path);
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read file: {}", file_path))?;
+        let mut conflicts = Vec::new();
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to read file: {}: {}", file_path, e);
+                return Ok(conflicts);
+            }
+        };
 
         // Get the marker size for this file from gitattributes
         let marker_size = self.get_marker_size_for_file(file_path)?;
 
-        let mut conflicts = Vec::new();
         let re = Regex::new(&format!(
             r"(?ms)(^{} .*?^{} .*?^{}\n.*?^{}.*?\n)",
             Self::create_local_marker(marker_size),
