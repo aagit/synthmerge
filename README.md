@@ -356,6 +356,22 @@ Model: Devstral-Small-2-24B-Instruct-2512 (no_diff)
   Average tokens: 963.94
   Average duration: 7.06 s
 
+# temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
+# llama.cpp vulkan UD-Q2_K_XL
+Model: Qwen3-Coder-Next (default)
+Model: llama.cpp vulkan
+  Accuracy: 52.97% (598/1129)
+  Accuracy (aligned): 59.61% (673/1129)
+  Accuracy (stripped): 62.62% (707/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 4241.78
+  Average duration: 8.52 s
+  Average prob: 6.7% (+- 39.6)
+  Average prob (incorrect): 1.6% (+- 31.2)
+  Average prob (stripped): 15.6% (+- 39.3)
+  Average prob (aligned): 17.3% (+- 39.1)
+  Average prob (correct): 21.7% (+- 38.3)
+
 # context: layout: system_message: [ prompt ] user_message: [ training, diff ]
 Model: Gemini 2.5 Pro (low userctx) # reasoning_effort: low
   Accuracy: 52.44% (592/1129)
@@ -373,16 +389,6 @@ Model: Gemini 2.5 Pro (low no_diff) # reasoning_effort: low
   Error Rate: 2.92% (33/1129)
   Average tokens: 1931.27
   Average duration: 9.11 s
-
-# temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
-# llama.cpp vulkan UD-Q2_K_XL
-Model: Qwen3-Coder-Next (default)
-  Accuracy: 51.73% (584/1129)
-  Accuracy (aligned): 57.75% (652/1129)
-  Accuracy (stripped): 61.03% (689/1129)
-  Error Rate: 0.18% (2/1129)
-  Average tokens: 4253.70
-  Average duration: 6.15 s
 
 # temperature: 0.7 top_k: 20 top_p: 0.8 min_p: 0
 # llama.cpp vulkan Q6_K
