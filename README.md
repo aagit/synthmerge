@@ -307,6 +307,14 @@ Model: Gemini 3 Flash (none no_diff) # reasoning_effort: none
   Average tokens: 1084.24
   Average duration: 1.53 s
 
+Model: Claude Sonnet 4.6 (default)
+  Accuracy: 60.67% (685/1129)
+  Accuracy (aligned): 63.86% (721/1129)
+  Accuracy (stripped): 66.61% (752/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5768.64
+  Average duration: 3.57 s
+
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan UD-Q6_K_XL
 Model: Devstral-Small-2-24B-Instruct-2512 (default)
