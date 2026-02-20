@@ -77,7 +77,11 @@ async fn main() -> Result<()> {
     );
     let resolved_conflicts = resolver.resolve_conflicts(&conflicts).await?.0;
 
-    git_utils.apply_resolved_conflicts(&resolved_conflicts)?;
+    if args.vibe {
+        git_utils.apply_vibe_resolution(&conflicts, &resolved_conflicts)?;
+    } else {
+        git_utils.apply_resolved_conflicts(&resolved_conflicts)?;
+    }
 
     #[cfg(feature = "telemetry")]
     {
