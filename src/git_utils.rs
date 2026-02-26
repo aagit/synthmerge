@@ -626,6 +626,9 @@ impl GitUtils {
         // Update git index if all conflicts are resolved
         if !unresolved_files {
             self.git_update_index()?;
+        } else {
+            // If there are unresolved files, the index was not updated
+            return Err(anyhow::anyhow!("Unresolved conflicts detected"));
         }
 
         Ok(())

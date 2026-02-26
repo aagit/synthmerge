@@ -83,9 +83,16 @@ async fn main() -> Result<()> {
 
         let mut repeat = false;
         if args.vibe {
-            git_utils.apply_vibe_resolution(&conflicts, &resolved_conflicts)?;
-            if args.continue_op {
-                repeat = git_utils.continue_operation(false)?;
+            match git_utils.apply_vibe_resolution(&conflicts, &resolved_conflicts) {
+                Ok(()) => {
+                    if args.continue_op {
+                        repeat = git_utils.continue_operation(false)?;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to apply vibe resolution: {}", e);
+                    std::process::exit(2);
+                }
             }
         } else {
             git_utils.apply_resolved_conflicts(&resolved_conflicts)?;
