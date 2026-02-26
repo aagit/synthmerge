@@ -27,6 +27,16 @@ remain within your favorite code editor.}
 
 %description %{_description}
 
+%package        emacs
+BuildRequires:  emacs-nw
+BuildArch:      noarch
+Requires:       emacs-filesystem >= %{_emacs_version}
+Requires:       %{name} = %{version}-%{release}
+Summary:        Emacs smerge-mode with synthmerge support
+
+%description emacs
+smerge-mode for Emacs with AI-generated conflict resolutions support.
+
 %prep
 %autosetup -n synthmerge-%{version} -p1
 %cargo_prep
@@ -45,6 +55,7 @@ mkdir -p %{buildroot}%{_datarootdir}/%{name}
 cp -a synthmerge.yaml %{buildroot}%{_datarootdir}/%{name}
 mkdir -p %{buildroot}%{_mandir}/man1/
 cp -a target/rpm/build/%{name}-*/man/*.1 %{buildroot}%{_mandir}/man1/
+install -m0644 -D emacs/smerge-mode.el %{buildroot}%{_emacs_sitestartdir}/smerge-mode-init.el
 
 %if %{with check}
 %check
@@ -59,6 +70,9 @@ cp -a target/rpm/build/%{name}-*/man/*.1 %{buildroot}%{_mandir}/man1/
 %{_datarootdir}/%{name}
 %{_mandir}/man1/synthmerge.1*
 %{_mandir}/man1/synthmerge_bench.1*
+
+%files emacs
+%{_emacs_sitestartdir}/smerge-mode-init.el
 
 %changelog
 %autochangelog
