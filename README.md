@@ -367,6 +367,36 @@ Model: Claude Sonnet 4.6 (default)
   Average tokens: 5768.64
   Average duration: 3.57 s
 
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00 --no-jinja
+# llama.cpp vulkan UD-Q6_K_XL
+Model: Qwen3.5-27B-UD-Q6_K_XL.gguf (gbnf)
+  Accuracy: 59.43% (671/1129)
+  Accuracy (aligned): 63.51% (717/1129)
+  Accuracy (stripped): 66.70% (753/1129)
+  Error Rate: 0.09% (1/1129)
+  Average tokens: 4536.33
+  Average duration: 20.70 s
+  Average prob: 1.1% (+- 29.4)
+  Average prob (incorrect): 0.0% (+- 20.5)
+  Average prob (stripped): 6.6% (+- 29.6)
+  Average prob (aligned): 6.9% (+- 29.5)
+  Average prob (correct): 9.8% (+- 29.2)
+
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00 --no-jinja
+# llama.cpp vulkan UD-Q6_K_XL
+Model: Qwen3.5-35B-A3B (gbnf)
+  Accuracy: 58.55% (661/1129)
+  Accuracy (aligned): 64.84% (732/1129)
+  Accuracy (stripped): 67.94% (767/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 4553.90
+  Average duration: 8.44 s
+  Average prob: 2.1% (+- 27.4)
+  Average prob (incorrect): 0.3% (+- 19.9)
+  Average prob (stripped): 4.9% (+- 28.8)
+  Average prob (aligned): 5.1% (+- 28.9)
+  Average prob (correct): 7.0% (+- 29.1)
+
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan UD-Q6_K_XL
 Model: Devstral-Small-2-24B-Instruct-2512 (default)
