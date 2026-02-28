@@ -113,12 +113,12 @@ Used in `smerge-diff-base-upper' and related functions."
 
 (defface smerge-ai
   '((((class color) (min-colors 88) (background light))
-     :background "#ffffaa" :extend t)
+     :background "#ffaaff" :extend t)
     (((class color) (min-colors 88) (background dark))
      :background "#221122" :extend t)
     (((class color))
      :foreground "cyan" :extend t))
-  "Face for the base code.")
+  "Face for the AI code.")
 (defvar smerge-ai-face 'smerge-ai)
 
 (defface smerge-markers
