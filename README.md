@@ -12,7 +12,7 @@
    Dedicated AI inference system that complements Git without duplicating its core functionality
 
 2. **Git Integration**  
-   Leverages Git's `diff3` conflict markers as the foundation (requires `git config merge.conflictStyle diff3`)
+   Leverages Git's `diff3` conflict [markers](git-conflict-solutions-marker.md) as the foundation (requires `git config merge.conflictStyle diff3`)
 
 3. **Editor Agnostic**  
    Compatible with any development environment (VS Code, Emacs, Vim, etc.)
@@ -92,7 +92,7 @@
    - Receives resolved code
 
 4. **Git gets updated**  
-   - synthmerge inserts the AI resolution into existing diff3 markers
+   - synthmerge inserts the AI resolution into existing diff3 conflicts with a new [solutions marker](git-conflict-solutions-marker.md)
    - You review in your editor
 
 > ✅ Works also for git rebase, revert and merge conflict resolutions.
@@ -204,7 +204,7 @@ endpoints:
 
 ## 🎨 Emacs Integration
 
-`synthmerge` ships with a modified `smerge-mode` plugin for that provides a visual interface to review and select AI-generated solutions alongside the original conflict markers.
+`synthmerge` ships with a modified `smerge-mode` plugin for that provides a visual interface to review and select AI-generated solutions alongside the original conflict [markers](git-conflict-solutions-marker.md).
 
 ### smerge-refine Enhancement
 
