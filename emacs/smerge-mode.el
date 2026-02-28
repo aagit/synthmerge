@@ -88,7 +88,6 @@ Used in `smerge-diff-base-upper' and related functions."
      :foreground "red" :extend t))
   "Face for the `upper' version of a conflict.")
 (define-obsolete-face-alias 'smerge-mine 'smerge-upper "26.1")
-(defvar smerge-upper-face 'smerge-upper)
 
 (defface smerge-lower
   '((((class color) (min-colors 88) (background light))
@@ -99,7 +98,6 @@ Used in `smerge-diff-base-upper' and related functions."
      :foreground "green" :extend t))
   "Face for the `lower' version of a conflict.")
 (define-obsolete-face-alias 'smerge-other 'smerge-lower "26.1")
-(defvar smerge-lower-face 'smerge-lower)
 
 (defface smerge-base
   '((((class color) (min-colors 88) (background light))
@@ -109,7 +107,6 @@ Used in `smerge-diff-base-upper' and related functions."
     (((class color))
      :foreground "yellow" :extend t))
   "Face for the base code.")
-(defvar smerge-base-face 'smerge-base)
 
 (defface smerge-ai
   '((((class color) (min-colors 88) (background light))
@@ -119,7 +116,6 @@ Used in `smerge-diff-base-upper' and related functions."
     (((class color))
      :foreground "cyan" :extend t))
   "Face for the AI code.")
-(defvar smerge-ai-face 'smerge-ai)
 
 (defface smerge-markers
   '((((background light))
@@ -127,7 +123,6 @@ Used in `smerge-diff-base-upper' and related functions."
     (((background dark))
      (:background "grey10 " :extend t)))
   "Face for the conflict markers.")
-(defvar smerge-markers-face 'smerge-markers)
 
 (defface smerge-refined-changed
   '((t nil))
@@ -279,12 +274,12 @@ Used in `repeat-mode'."
 
 (defconst smerge-font-lock-keywords
   '((smerge-find-conflict
-     (1 smerge-upper-face prepend t)
-     (2 smerge-base-face prepend t)
-     (3 smerge-lower-face prepend t)
-     (4 smerge-ai-face prepend t)
+     (1 'smerge-upper prepend t)
+     (2 'smerge-base prepend t)
+     (3 'smerge-lower prepend t)
+     (4 'smerge-ai prepend t)
      ;; FIXME: `keep' doesn't work right with syntactic fontification.
-     (0 smerge-markers-face keep)
+     (0 'smerge-markers keep)
      (5 nil t t)
      (6 nil t t)))
   "Font lock patterns for `smerge-mode'.")
