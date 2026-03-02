@@ -1739,9 +1739,9 @@ with a \\[universal-argument] prefix, makes up a 3-way conflict."
 	(save-excursion
           (with-demoted-errors "%S" ;Those things do happen, occasionally.
             (font-lock-fontify-region
-             (match-beginning 0) (match-end 0) nil))
-	  (if smerge-refine-all
-	      (smerge-refine))))))
+             (match-beginning 0) (match-end 0) nil)
+	    (if smerge-refine-all
+		(smerge-refine)))))))
   (if (string-match (regexp-quote smerge-parsep-re) paragraph-separate)
       (unless smerge-mode
         (setq-local paragraph-separate
