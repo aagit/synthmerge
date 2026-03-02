@@ -211,9 +211,7 @@ impl ApiClient {
         self.apply_parameters(&mut payload, &variant.json)?;
         if perplexity_search.is_some() {
             payload.as_object_mut().unwrap().remove("n_probs");
-        }
-
-        if *gbnf {
+        } else if *gbnf {
             self.apply_parameters(
                 &mut payload,
                 &Some(EndpointJson {
