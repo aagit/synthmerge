@@ -159,9 +159,10 @@ def test_synthmerge(
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python synthmerge-stable-test.py <config-file>")
+	script_name = sys.argv[0]
+        print(f"Usage: {script_name} <config-file>")
         print(
-            "Example: git log stable/linux-5.15.y -100 | python backtest_stable.py synthmerge-all.yaml"
+            f"Example: git log stable/linux-5.15.y -100 | {script_name} synthmerge-all.yaml"
         )
         sys.exit(1)
 

@@ -84,9 +84,10 @@ def find_differing_rows(
 
 
 def main():
+    script_name = sys.argv[0]
     if len(sys.argv) < 5:
         print(
-            "Usage: python diff_csv.py <test.csv> <file1.csv> "
+            f"Usage: {script_name} <test.csv> <file1.csv> "
             "<file2.csv> <field1> [field2] ..."
         )
         sys.exit(1)
