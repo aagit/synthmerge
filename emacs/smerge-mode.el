@@ -121,7 +121,7 @@ Used in `smerge-diff-base-upper' and related functions."
   '((((background light))
      (:background "grey90" :extend t))
     (((background dark))
-     (:background "grey10 " :extend t)))
+     (:background "grey10" :extend t)))
   "Face for the conflict markers.")
 
 (defface smerge-refined-changed
