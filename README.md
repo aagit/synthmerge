@@ -343,6 +343,21 @@ Model: Patchpal AI
   Accuracy (stripped): 71.12% (803/1129) # might be duplicate with other beams
   Error Rate: 0.44% (5/1129)
 
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
+# llama.cpp vulkan UD-Q6_K_XL enable_thinking: false
+Model: Qwen3.5-27B (gbnf)
+  Accuracy: 63.86% (721/1129)
+  Accuracy (aligned): 68.20% (770/1129)
+  Accuracy (stripped): 71.48% (807/1129)
+  Error Rate: 0.09% (1/1129)
+  Average tokens: 4515.35
+  Average duration: 35.35 s
+  Average prob: 6.3% (+- 34.7)
+  Average prob (incorrect): 1.1% (+- 27.8)
+  Average prob (stripped): 12.7% (+- 34.4)
+  Average prob (aligned): 13.8% (+- 34.3)
+  Average prob (correct): 17.1% (+- 33.9)
+
 Model: Gemini 3 Flash (none default) # reasoning_effort: none
   Accuracy: 64.13% (724/1129)
   Accuracy (aligned): 70.59% (797/1129)
@@ -367,36 +382,6 @@ Model: Claude Sonnet 4.6 (default)
   Average tokens: 5768.64
   Average duration: 3.57 s
 
-# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00 --no-jinja
-# llama.cpp vulkan UD-Q6_K_XL
-Model: Qwen3.5-27B-UD-Q6_K_XL.gguf (gbnf)
-  Accuracy: 59.43% (671/1129)
-  Accuracy (aligned): 63.51% (717/1129)
-  Accuracy (stripped): 66.70% (753/1129)
-  Error Rate: 0.09% (1/1129)
-  Average tokens: 4536.33
-  Average duration: 20.70 s
-  Average prob: 1.1% (+- 29.4)
-  Average prob (incorrect): 0.0% (+- 20.5)
-  Average prob (stripped): 6.6% (+- 29.6)
-  Average prob (aligned): 6.9% (+- 29.5)
-  Average prob (correct): 9.8% (+- 29.2)
-
-# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00 --no-jinja
-# llama.cpp vulkan UD-Q6_K_XL
-Model: Qwen3.5-35B-A3B (gbnf)
-  Accuracy: 58.55% (661/1129)
-  Accuracy (aligned): 64.84% (732/1129)
-  Accuracy (stripped): 67.94% (767/1129)
-  Error Rate: 0.00% (0/1129)
-  Average tokens: 4553.90
-  Average duration: 8.44 s
-  Average prob: 2.1% (+- 27.4)
-  Average prob (incorrect): 0.3% (+- 19.9)
-  Average prob (stripped): 4.9% (+- 28.8)
-  Average prob (aligned): 5.1% (+- 28.9)
-  Average prob (correct): 7.0% (+- 29.1)
-
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan UD-Q6_K_XL
 Model: Devstral-Small-2-24B-Instruct-2512 (default)
@@ -411,6 +396,21 @@ Model: Devstral-Small-2-24B-Instruct-2512 (default)
   Average prob (stripped): 4.8% (+- 33.0)
   Average prob (aligned): 5.1% (+- 33.1)
   Average prob (correct): 6.4% (+- 33.6)
+
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
+# llama.cpp vulkan UD-Q6_K_S enable_thinking: false
+Model: Qwen3.5-35B-A3B (gbnf)
+  Accuracy: 56.86% (642/1129)
+  Accuracy (aligned): 63.06% (712/1129)
+  Accuracy (stripped): 66.34% (749/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 4557.06
+  Average duration: 8.20 s
+  Average prob: 3.3% (+- 33.3)
+  Average prob (incorrect): 0.6% (+- 25.8)
+  Average prob (stripped): 8.1% (+- 34.3)
+  Average prob (aligned): 8.8% (+- 34.4)
+  Average prob (correct): 11.8% (+- 34.3)
 
 Model: Gemini 2.5 Pro (high) # reasoning_effort: high
   Accuracy: 55.18% (623/1129)
