@@ -4,6 +4,8 @@
 
 `synthmerge` is a minimalistic command-line tool that leverages AI to automatically resolve conflicts arising from Git commands. Built on the research of the [Patchpal project](https://gitlab.com/patchpal-ai), it provides a pure AI inference layer that seamlessly integrates with your existing Git workflow. While the AI generates code solutions, all code reviews and approvals remain within your favorite code editor.
 
+Instead of relying on a single model, `synthmerge` runs a **parallel inference engine** to seek the **AI collective consensus**.
+
 ---
 
 ## 🌟 Core Principles
@@ -35,7 +37,7 @@
 - **Parallel Multi-AI Endpoint Support**  
   Simultaneously queries multiple AI models to resolve conflicts:
   - [Patchpal-backend](https://gitlab.com/patchpal-ai/patchpal-backend) (fine-tuned specifically for conflict resolution)
-  - Self-hosted open-weight open source LLMs with OpenAI-compatible endpoints
+  - Self-hosted open-weight open source LLMs with OpenAI-compatible endpoints (llama.cpp/vLLM)
   - Gemini (via OpenAI-compatible API)
   - Claude (via Anthropic API)
 
@@ -47,8 +49,8 @@
   - Custom JSON parameters that can be injected into the request payload from the YAML configuration (either at the endpoint level or in each variant)
   - Number of beams for Patchpal AI endpoint (n_beams)
 
-- **Results Deduplication**  
-  Consolidates identical solutions and displays model and/or parameter variant agreement
+- **Results Deduplication & Ranking**  
+  Consolidates identical solutions and displays model and/or parameter variant agreement. If multiple models agree on a fix, that solution is ranked first.
 
 - **Review Using Your Workflow**  
   - Resolved conflicts appear in your editor with model attribution
@@ -294,6 +296,11 @@ The following statistics were generated using the `synthmerge_bench` tool on a C
 **Accuracy (stripped)** compresses all whitespaces and newlines into a single space (i.e. C/C++/Rust/JavaScript equivalence).
 
 This measurement used only new test data never exposed to the model during the fine tuning process.
+
+### The Numbers
+
+- **Single Model**: ~69% full match accuracy (with the highest ranking model).
+- **Multi-Model**: ~88% chance that at least one correct solution is presented (ignoring whitespaces, model dependent).
 
 ```
 Model: Claude Opus 4.6 (default)
