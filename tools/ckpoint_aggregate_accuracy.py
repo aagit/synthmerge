@@ -62,9 +62,7 @@ def calculate_aggregate_stats(rows: List[dict]) -> Tuple[float, float, float]:
 def main():
     script_name = sys.argv[0]
     if len(sys.argv) < 3:
-        print(
-            f"Usage: {script_name} <model_regex> <file1.csv> [file2.csv] ..."
-        )
+        print(f"Usage: {script_name} <model_regex> <file1.csv> [file2.csv] ...")
         sys.exit(1)
 
     # Get model regex from first argument

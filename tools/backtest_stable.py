@@ -159,7 +159,7 @@ def test_synthmerge(
 
 def main():
     if len(sys.argv) < 2:
-	script_name = sys.argv[0]
+        script_name = sys.argv[0]
         print(f"Usage: {script_name} <config-file>")
         print(
             f"Example: git log stable/linux-5.15.y -100 | {script_name} synthmerge-all.yaml"
