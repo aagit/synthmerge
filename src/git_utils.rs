@@ -919,6 +919,60 @@ impl GitUtils {
 
     /// Update the git index
     fn git_update_index(&self) -> Result<()> {
+        // First get the current status in v2 format
+        let status_output = GitCommand::new("git")
+            .args(["status", "--porcelain=v2"])
+            .output()
+            .context("Failed to execute git status --porcelain=v2")?;
+
+        if !status_output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Git status --porcelain=v2 failed: {}",
+                String::from_utf8_lossy(&status_output.stderr)
+            ));
+        }
+
+        // Parse the status output to find files that are unmerged with our state deleted (D)
+        // and their state updated (U), or vice versa (U and D)
+        let status_output_str = String::from_utf8_lossy(&status_output.stdout);
+        for line in status_output_str.lines() {
+            // Skip header lines
+            if line.starts_with('#') {
+                continue;
+            }
+
+            // Parse unmerged entries (format: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>)
+            if line.starts_with('u') {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 10 {
+                    let xy = parts[1];
+                    // Check if our state is deleted (D) and their state is updated (U)
+                    // or our state is updated (U) and their state is deleted (D)
+                    // XY format: first char is our state, second is their state
+                    if xy.len() >= 2
+                        && ((xy.chars().nth(0) == Some('D') && xy.chars().nth(1) == Some('U'))
+                            || (xy.chars().nth(0) == Some('U') && xy.chars().nth(1) == Some('D')))
+                    {
+                        let path = parts[10];
+                        // Run git rm on this file
+                        let rm_output = GitCommand::new("git")
+                            .args(["rm", path])
+                            .output()
+                            .context(format!("Failed to execute git rm --cached {}", path))?;
+
+                        if !rm_output.status.success() {
+                            return Err(anyhow::anyhow!(
+                                "Git rm --cached {} failed: {}",
+                                path,
+                                String::from_utf8_lossy(&rm_output.stderr)
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Then add all changes
         let output = GitCommand::new("git")
             .args(["add", "-u"])
             .output()
