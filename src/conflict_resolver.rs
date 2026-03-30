@@ -381,9 +381,21 @@ impl<'a> ConflictResolver<'a> {
                         }
                         let resolved_string = new_resolved_string;
                         //reduce resolved to the range between head_context and tail_context
-                        let resolved_content = resolved_string[conflict.head_context.len()
-                            ..resolved_string.len() - conflict.tail_context.len()]
-                            .to_string();
+                        let resolved_content = if resolved_string.len()
+                            >= conflict.head_context.len() + conflict.tail_context.len()
+                        {
+                            resolved_string[conflict.head_context.len()
+                                ..resolved_string.len() - conflict.tail_context.len()]
+                                .to_string()
+                        } else {
+                            log::warn!(
+                                "Skipping {} - resolved content is too short to contain both head and tail context",
+                                model
+                            );
+                            log::trace!("ResolvedContent:\n{}", resolved_string);
+                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            continue;
+                        };
                         if !resolved_content.is_empty() && !resolved_content.ends_with('\n') {
                             log::error!(
                                 "Skipping {} - resolved content is not newline terminated",
