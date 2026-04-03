@@ -1116,7 +1116,7 @@ impl GitUtils {
                 .to_string();
 
             // Check if it's a rebase
-            if operation.file == "rebase" {
+            if operation.command == "rebase" {
                 // Also check if the rebase message file exists
                 let rebase_msg_path = Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE);
                 if rebase_msg_path.exists() {
