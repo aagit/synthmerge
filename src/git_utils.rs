@@ -1062,10 +1062,11 @@ impl GitUtils {
             }
         }
 
-        // Go backwards to find the last non-empty line
+        // Go backwards to find the last non-empty and non comment line
         while insert_pos > 0 {
             insert_pos -= 1;
-            if !lines[insert_pos].trim().is_empty() {
+            let line = &lines[insert_pos];
+            if !line.trim().is_empty() && !line.starts_with("#") {
                 break;
             }
         }
