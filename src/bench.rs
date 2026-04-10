@@ -561,7 +561,13 @@ impl Bench {
 
             let conflict = self.create_conflict_from_entry(entry)?;
 
-            let resolver = ConflictResolver::new(context_lines.clone(), config, git_diff, true);
+            let resolver = ConflictResolver::new(
+                context_lines.clone(),
+                config,
+                git_diff,
+                true,
+                args.cache_path.clone(),
+            );
 
             let resolved_conflicts = resolver.resolve_conflicts(&[conflict]).await;
             match resolved_conflicts {

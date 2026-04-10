@@ -9,6 +9,8 @@ use anyhow::Result;
 use futures::future::select_all;
 use regex::Regex;
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Conflict {
@@ -49,6 +51,8 @@ pub struct ConflictResolver<'a> {
     bench: bool,
     start_regex: Regex,
     end_regex: Regex,
+    lmdb_env: Option<Arc<lmdb::Environment>>,
+    lmdb_db: Option<Arc<lmdb::Database>>,
 }
 
 impl<'a> ConflictResolver<'a> {
@@ -67,7 +71,26 @@ impl<'a> ConflictResolver<'a> {
         config: &'a Config,
         git_diff: Option<String>,
         bench: bool,
+        cache_path: Option<String>,
     ) -> Self {
+        let mut lmdb_env: Option<Arc<lmdb::Environment>> = None;
+        let mut lmdb_db: Option<Arc<lmdb::Database>> = None;
+        if let Some(ref path) = cache_path {
+            let dir = Path::new(path);
+            if !dir.exists() {
+                std::fs::create_dir_all(dir).expect("Failed to create cache directory");
+            }
+            let env = lmdb::Environment::new()
+                .set_map_size(32 * 1024 * 1024 * 1024)
+                .set_flags(lmdb::EnvironmentFlags::NO_META_SYNC | lmdb::EnvironmentFlags::NO_TLS)
+                .open_with_permissions(dir, 0o600)
+                .expect("open lmdb env");
+            let db = env
+                .create_db(None, lmdb::DatabaseFlags::empty())
+                .expect("open index db");
+            lmdb_env = Some(Arc::new(env));
+            lmdb_db = Some(Arc::new(db));
+        }
         ConflictResolver {
             context_lines,
             config,
@@ -76,6 +99,8 @@ impl<'a> ConflictResolver<'a> {
             bench,
             start_regex: Regex::new(Self::REGEXP_PATCHED_CODE_START).unwrap(),
             end_regex: Regex::new(Self::REGEXP_PATCHED_CODE_END).unwrap(),
+            lmdb_env,
+            lmdb_db,
         }
     }
 
@@ -114,7 +139,11 @@ impl<'a> ConflictResolver<'a> {
             // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
             for (endpoint_index, endpoint) in endpoints.iter().enumerate() {
-                let client = ApiClient::new(endpoint.clone());
+                let client = ApiClient::new(
+                    endpoint.clone(),
+                    self.lmdb_env.clone(),
+                    self.lmdb_db.clone(),
+                );
                 let name = endpoint.name.clone();
                 let api_request = ApiRequest {
                     prompt: prompt.clone(),

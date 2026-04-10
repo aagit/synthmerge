@@ -8,10 +8,13 @@ use crate::config::{
 use crate::conflict_resolver::ConflictResolver;
 use crate::prob;
 use anyhow::{Context, Result, bail};
+use lmdb::Transaction;
 use reqwest::Certificate;
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -66,16 +69,65 @@ pub type ApiResponse = Vec<Vec<Result<ApiResponseEntry>>>;
 pub struct ApiClient {
     endpoint: EndpointConfig,
     client: reqwest::Client,
+    lmdb_env: Option<Arc<lmdb::Environment>>,
+    lmdb_db: Option<Arc<lmdb::Database>>,
 }
 
 impl ApiClient {
-    pub fn new(endpoint: EndpointConfig) -> Self {
+    pub fn new(
+        endpoint: EndpointConfig,
+        lmdb_env: Option<Arc<lmdb::Environment>>,
+        lmdb_db: Option<Arc<lmdb::Database>>,
+    ) -> Self {
         let client = Self::create_client(&endpoint);
 
         ApiClient {
             endpoint,
             client: client.expect("Failed to create client"),
+            lmdb_env,
+            lmdb_db,
         }
+    }
+
+    fn get_cache_key(&self, url: &str, payload_json: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(url);
+        hasher.update(payload_json);
+        let hash = hasher.finalize();
+        format!("{:x}", hash)
+    }
+
+    fn cache_response(&self, cache_key: &String, response: String) -> Result<()> {
+        if self.lmdb_env.is_none() {
+            return Ok(());
+        }
+        let compressed =
+            zstd::encode_all(response.as_bytes(), 0).expect("Failed to compress response");
+        let env = self.lmdb_env.as_ref().expect("No environment available");
+        let mut txn = env
+            .begin_rw_txn()
+            .expect("Failed to start read transaction");
+        txn.put(
+            **self.lmdb_db.as_ref().unwrap(),
+            cache_key,
+            &compressed,
+            lmdb::WriteFlags::empty(),
+        )
+        .expect("Failed to cache response");
+        txn.commit().expect("Failed to commit transaction");
+        Ok(())
+    }
+
+    fn get_cached_response(&self, cache_key: &String) -> Option<String> {
+        self.lmdb_env.as_ref()?;
+        let env = self.lmdb_env.as_ref().expect("No environment available");
+        let txn = env
+            .begin_ro_txn()
+            .expect("Failed to start read transaction");
+        txn.get(**self.lmdb_db.as_ref().unwrap(), cache_key)
+            .ok()
+            .and_then(|v| zstd::decode_all(v).ok())
+            .map(|compressed| String::from_utf8_lossy(&compressed).to_string())
     }
 
     pub fn create_client(endpoint: &EndpointConfig) -> Result<reqwest::Client> {
@@ -692,6 +744,14 @@ impl ApiClient {
         let mut delay = Duration::from_millis(self.endpoint.delay);
         let max_delay = Duration::from_millis(self.endpoint.max_delay);
 
+        let cache_key = self.get_cache_key(url, &serde_json::to_string(payload).unwrap());
+        if let Some(response_text) = self.get_cached_response(&cache_key) {
+            let api_response = response_handler(&response_text, perplexity, 0.);
+            if api_response.is_ok() {
+                return api_response;
+            }
+        }
+
         log::trace!(
             "Request JSON ({}):\n{}",
             self.endpoint.name,
@@ -731,6 +791,7 @@ impl ApiClient {
 
                     match response_handler(&response_text, perplexity, duration) {
                         Ok(api_response) => {
+                            self.cache_response(&cache_key, response_text)?;
                             self.apply_wait().await;
                             return Ok(api_response);
                         }

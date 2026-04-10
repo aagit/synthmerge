@@ -45,6 +45,10 @@ pub struct BenchArgs {
     /// Number of context lines of the patch
     #[arg(long = "patch-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
     pub patch_context_lines: u32,
+
+    /// Path to LMDB cache file for API responses
+    #[arg(long = "cache", required = false)]
+    pub cache_path: Option<String>,
 }
 
 // Local Variables:

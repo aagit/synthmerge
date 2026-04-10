@@ -27,6 +27,8 @@ csv = "1.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 hostname = "0"
 sha2 = "0.10"
+lmdb = "0.8"
+zstd = "0.13"
 
 [build-dependencies]
 clap_mangen = "0.2"
