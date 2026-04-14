@@ -674,6 +674,7 @@ impl ApiClient {
                             anyhow::anyhow!("Failed to parse JSON response: {}", e)
                         }
                     })?;
+
                 if json_response.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0") {
                     log::warn!(
                         "Invalid patchpal jsonrpc version:\n{}",
@@ -681,6 +682,30 @@ impl ApiClient {
                     );
                     return Err(anyhow::anyhow!("Invalid patchpal jsonrpc version"));
                 }
+
+                // Check for RPC errors in the response
+                if let Some(error) = json_response.get("error") {
+                    let error_code = error.get("code").and_then(|v| v.as_i64());
+                    let error_message = error.get("message").and_then(|v| v.as_str());
+                    if error_message.is_some_and(|msg| msg.contains("out of memory")) {
+                        log::error!(
+                            "Patchpal RPC error: code={}, message={}",
+                            error_code.map_or("".to_string(), |c| c.to_string()),
+                            error_message.unwrap_or("unknown error")
+                        );
+                        return Err(anyhow::anyhow!(ApiRequestError::ExceedContextSize));
+                    }
+                    log::error!(
+                        "Patchpal RPC error: code={}, message={}",
+                        error_code.map_or("-1".to_string(), |c| c.to_string()),
+                        error_message.unwrap_or("unknown error")
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Patchpal RPC error: {}",
+                        error_message.unwrap_or("unknown error")
+                    ));
+                }
+
                 let n_beams = match &self.endpoint.config {
                     EndpointTypeConfig::Patchpal { n_beams, .. } => *n_beams,
                     _ => panic!("cannot happen"),
