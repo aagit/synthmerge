@@ -772,8 +772,24 @@ impl ApiClient {
         let cache_key = self.get_cache_key(url, &serde_json::to_string(payload).unwrap());
         if let Some(response_text) = self.get_cached_response(&cache_key) {
             let api_response = response_handler(&response_text, perplexity, 0.);
-            if api_response.is_ok() {
-                return api_response;
+            match api_response {
+                Ok(r) => return Ok(r),
+                Err(e) => {
+                    if let Some(
+                        ApiRequestError::ExceedContextSize
+                        | ApiRequestError::ContentFilterRecitation
+                        | ApiRequestError::IncompleteGeneration,
+                    ) = e.downcast_ref::<ApiRequestError>()
+                    {
+                        return Err(e);
+                    } else {
+                        bail!(
+                            "Cached response failed with recoverable error for {}: {}",
+                            self.endpoint.name,
+                            e
+                        );
+                    }
+                }
             }
         }
 
@@ -827,6 +843,7 @@ impl ApiClient {
                                     | ApiRequestError::ContentFilterRecitation
                                     | ApiRequestError::IncompleteGeneration => {
                                         // If it's a context size error, don't retry
+                                        self.cache_response(&cache_key, response_text)?;
                                         self.apply_wait().await;
                                         return Err(e);
                                     }
