@@ -309,6 +309,20 @@ impl ApiClient {
                     bail!(ApiRequestError::ExceedContextSize);
                 }
 
+                // Check for context size error in Gemini responses (array format)
+                if let Some(errors) = json_response.as_array()
+                    && let Some(first_error) = errors.first()
+                    && let Some(error_obj) = first_error.get("error")
+                    && let Some(message) = error_obj.get("message").and_then(|v| v.as_str())
+                    && message.contains("exceeds the maximum number of tokens allowed")
+                {
+                    log::warn!(
+                        "Context size error for endpoint {}. Not retrying.",
+                        self.endpoint.name
+                    );
+                    bail!(ApiRequestError::ExceedContextSize);
+                }
+
                 // Check for content filter recitation error in OpenAI responses
                 if let Some(choices) = json_response.get("choices").and_then(|c| c.as_array())
                     && let Some(choice) = choices.first()
