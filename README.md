@@ -313,6 +313,35 @@ Model: Claude Opus 4.6 (default)
   Average tokens: 5769.34
   Average duration: 3.39 s
 
+Model: Gemini 3.1 Pro (low default) # reasoning_effort: low
+  Accuracy: 68.73% (776/1129)
+  Accuracy (aligned): 72.28% (816/1129)
+  Accuracy (stripped): 75.29% (850/1129)
+  Error Rate: 3.19% (36/1129)
+  Average tokens: 5755.29
+  Average duration: 6.33 s
+
+Model: Gemini 3.1 Pro (medium default) # reasoning_effort: medium
+  Accuracy: 68.02% (768/1129)
+  Accuracy (aligned): 71.74% (810/1129)
+  Accuracy (stripped): 74.93% (846/1129)
+  Error Rate: 2.83% (32/1129)
+  Average tokens: 6341.90
+  Average duration: 9.78 s
+
+# only the Patchpal Beam 0 is comparable to the non Patchpal models
+Model: Patchpal AI 7B
+  Accuracy: 67.05% (757/1129)
+  Accuracy (aligned): 70.95% (801/1129) # might be duplicate with other beams
+  Accuracy (stripped): 73.60% (831/1129) # might be duplicate with other beams
+  Error Rate: 0.00% (0/1129)
+  Average duration: 10.90 s
+  Average prob: 92.9% (+- 7.2)
+  Average prob (incorrect): 88.3% (+- 8.9)
+  Average prob (stripped): 94.6% (+- 5.6)
+  Average prob (aligned): 94.8% (+- 5.6)
+  Average prob (correct): 95.0% (+- 5.3)
+
 Model: Claude Sonnet 4.0 (default)
   Accuracy: 66.70% (753/1129)
   Accuracy (aligned): 70.42% (795/1129)
@@ -345,13 +374,6 @@ Model: Claude Sonnet 4.5 (default)
   Average tokens: 5735.29
   Average duration: 3.04 s
 
-# only the Patchpal Beam 0 is comparable to the non Patchpal models
-Model: Patchpal AI
-  Accuracy: 64.57% (729/1129)
-  Accuracy (aligned): 68.47% (773/1129) # might be duplicate with other beams
-  Accuracy (stripped): 71.12% (803/1129) # might be duplicate with other beams
-  Error Rate: 0.44% (5/1129)
-
 # temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
 # llama.cpp vulkan UD-Q6_K_XL enable_thinking: false
 Model: Qwen3.5-27B (gbnf)
@@ -373,7 +395,7 @@ Model: Gemini 3 Flash (none default) # reasoning_effort: none
   Accuracy (stripped): 73.43% (829/1129)
   Error Rate: 0.62% (7/1129)
   Average tokens: 5359.16
-  Average duration: 1.73 s # fastest
+  Average duration: 1.73 s
 
 Model: Gemini 3 Flash (none no_diff) # reasoning_effort: none
   Accuracy: 62.98% (711/1129)
@@ -390,6 +412,14 @@ Model: Claude Sonnet 4.6 (default)
   Error Rate: 0.00% (0/1129)
   Average tokens: 5768.64
   Average duration: 3.57 s
+
+Model: Gemini 3.1 Flash Lite (none default) # reasoning_effort: none
+  Accuracy: 57.93% (654/1129)
+  Accuracy (aligned): 65.90% (744/1129)
+  Accuracy (stripped): 69.71% (787/1129)
+  Error Rate: 3.01% (34/1129)
+  Average tokens: 5398.07
+  Average duration: 1.20 s
 
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan UD-Q6_K_XL
@@ -455,10 +485,24 @@ Model: Devstral-Small-2-24B-Instruct-2512 (no_diff)
   Average tokens: 963.94
   Average duration: 7.06 s
 
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
+# llama.cpp vulkan UD-Q8_K_XL reasoning off
+Model: Qwen3.5-9B (gbnf)
+  Accuracy: 53.06% (599/1129)
+  Accuracy (aligned): 56.60% (639/1129)
+  Accuracy (stripped): 59.96% (677/1129)
+  Error Rate: 0.09% (1/1129)
+  Average tokens: 4561.30
+  Average duration: 9.16 s
+  Average prob: 1.2% (+- 23.1)
+  Average prob (incorrect): 0.2% (+- 16.3)
+  Average prob (stripped): 3.6% (+- 25.2)
+  Average prob (aligned): 3.9% (+- 25.5)
+  Average prob (correct): 4.5% (+- 25.8)
+
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan UD-Q2_K_XL
 Model: Qwen3-Coder-Next (default)
-Model: llama.cpp vulkan
   Accuracy: 52.97% (598/1129)
   Accuracy (aligned): 59.61% (673/1129)
   Accuracy (stripped): 62.62% (707/1129)
@@ -479,6 +523,21 @@ Model: Gemini 2.5 Pro (low userctx) # reasoning_effort: low
   Error Rate: 5.49% (62/1129)
   Average tokens: 6014.82
   Average duration: 9.68 s
+
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
+# llama.cpp vulkan UD-Q6_K_XL reasoning off
+Model: Qwen3.5-9B (gbnf)
+  Accuracy: 51.99% (587/1129)
+  Accuracy (aligned): 56.16% (634/1129)
+  Accuracy (stripped): 59.61% (673/1129)
+  Error Rate: 0.18% (2/1129)
+  Average tokens: 4565.06
+  Average duration: 7.81 s
+  Average prob: 1.3% (+- 23.4)
+  Average prob (incorrect): 0.2% (+- 16.7)
+  Average prob (stripped): 3.9% (+- 25.5)
+  Average prob (aligned): 4.2% (+- 25.8)
+  Average prob (correct): 5.0% (+- 26.2)
 
 # context: layout: system_message: [ prompt ] user_message: [ training, diff ]
 Model: Gemini 2.5 Pro (low no_diff) # reasoning_effort: low
@@ -546,11 +605,17 @@ Model: Gemini 2.5 Flash (low default userctx) # reasoning_effort: low
   Average duration: 4.22 s
 
 # if Beam 0 is wrong, Beam 1 is right 10.54% of the time
-Model: Patchpal AI #1
-  Accuracy: 10.54% (119/1129)
-  Accuracy (aligned): 21.17% (239/1129) # might be duplicate with other beams
-  Accuracy (stripped): 30.03% (339/1129) # might be duplicate with other beams
-  Error Rate: 0.53% (6/1129)
+Model: Patchpal AI 7B (#1)
+  Accuracy: 9.21% (104/1129)
+  Accuracy (aligned): 23.91% (270/1129) # might be duplicate with other beams
+  Accuracy (stripped): 30.29% (342/1129) # might be duplicate with other beams
+  Error Rate: 0.00% (0/1129)
+  Average duration: 10.90 s
+  Average prob: 59.7% (+- 20.6)
+  Average prob (incorrect): 60.9% (+- 20.1)
+  Average prob (stripped): 56.9% (+- 21.7)
+  Average prob (aligned): 55.1% (+- 23.1)
+  Average prob (correct): 73.0% (+- 14.1)
 
 Model: Gemini 2.5 Flash (low default) # reasoning_effort: low
   Accuracy: 7.97% (90/1129)
@@ -570,11 +635,17 @@ Model: Qwen3-Coder-30B-A3B-Instruct (no_diff#1) # perplexity beam #1
   Average duration: 1.17 s # kvcached
 
 # if Beam 0 and Beam 1 are wrong, Beam 2 is right 3.37% of the time
-Model: Patchpal AI #2
-  Accuracy: 3.37% (38/1129)
-  Accuracy (aligned): 16.21% (183/1129) # might be duplicate with other beams
-  Accuracy (stripped): 23.83% (269/1129) # might be duplicate with other beams
-  Error Rate: 0.44% (5/1129)
+Model: Patchpal AI 7B (#2)
+  Accuracy: 3.10% (35/1129)
+  Accuracy (aligned): 18.60% (210/1129) # might be duplicate with other beams
+  Accuracy (stripped): 26.40% (298/1129) # might be duplicate with other beams
+  Error Rate: 0.09% (1/1129)
+  Average duration: 10.89 s
+  Average prob: 48.6% (+- 21.9)
+  Average prob (incorrect): 50.3% (+- 21.6)
+  Average prob (stripped): 44.1% (+- 22.7)
+  Average prob (aligned): 41.5% (+- 24.2)
+  Average prob (correct): 66.0% (+- 17.2)
 
 # this is comparable to Patchpal AI #2
 Model: Qwen3-Coder-30B-A3B-Instruct (default#2) # perplexity beam #2
