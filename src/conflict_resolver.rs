@@ -323,7 +323,9 @@ impl<'a> ConflictResolver<'a> {
             let result = match &result.0 {
                 Ok(r) => r,
                 Err(e) => {
-                    log::warn!("Skipping {} due to error: {}", endpoints[endpoint].name, e);
+                    let model = &endpoints[endpoint].name;
+                    log::warn!("Skipping {} due to error: {}", model, e);
+                    *resolver_errors.errors.entry(model.to_string()).or_insert(0) += 1;
                     continue;
                 }
             };
