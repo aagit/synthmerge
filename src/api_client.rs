@@ -483,7 +483,8 @@ impl ApiClient {
                     && let Some(error_type) = error.get("type").and_then(|v| v.as_str())
                     && error_type == "invalid_request_error"
                     && let Some(message) = error.get("message").and_then(|v| v.as_str())
-                    && message.contains("Request size exceeds model context window")
+                    && (message.contains("Request size exceeds model context window") ||
+			message.contains("prompt is too long"))
                 {
                     log::warn!(
                         "Context size error for endpoint {}. Not retrying.",
