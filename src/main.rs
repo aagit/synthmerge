@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
         // Check if we're in a cherry-pick and extract commit if needed
         let git_diff = if let Some(commit_hash) = git_utils.find_commit_hash()? {
             log::info!("Extracting diff for commit {}", commit_hash);
-            git_utils.extract_diff(&commit_hash)?
+            git_utils.extract_diff(&commit_hash, args.max_diff_size)?
         } else {
             None
         };

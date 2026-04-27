@@ -1173,8 +1173,19 @@ impl GitUtils {
     }
 
     /// Extract the patch from a specific commit hash
-    pub fn extract_diff(&self, commit_hash: &str) -> Result<Option<String>> {
-        self.git_show_in_dir(commit_hash, None, None)
+    pub fn extract_diff(&self, commit_hash: &str, max_diff_size: u32) -> Result<Option<String>> {
+        let diff = self.git_show_in_dir(commit_hash, None, None)?;
+        Ok(diff.and_then(|d| {
+            if d.len() <= max_diff_size.try_into().unwrap() {
+                Some(d)
+            } else {
+                log::warn!(
+                    "Git diff exceeds max size ({} bytes), skipping",
+                    max_diff_size
+                );
+                None
+            }
+        }))
     }
 
     /// Extract the patch from a specific commit hash

@@ -552,9 +552,17 @@ impl Bench {
                 if let Some(diff) =
                     self.git_show_dirs(&git_utils, &args.git_directories, commit_hash, None)
                 {
-                    // Store the diff for future use
-                    self.git_diffs.insert(commit_hash.clone(), diff.clone());
-                    return Some(diff);
+                    if diff.len() <= args.max_diff_size.try_into().unwrap() {
+                        // Store the diff for future use
+                        self.git_diffs.insert(commit_hash.clone(), diff.clone());
+                        return Some(diff);
+                    } else {
+                        log::warn!(
+                            "Git diff exceeds max size ({} bytes), skipping",
+                            args.max_diff_size
+                        );
+                        return None;
+                    }
                 }
                 panic!("Git diff for commit {} not found", commit_hash);
             });

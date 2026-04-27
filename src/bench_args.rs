@@ -46,6 +46,10 @@ pub struct BenchArgs {
     #[arg(long = "patch-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
     pub patch_context_lines: u32,
 
+    /// Maximum size of the diff provided as context
+    #[arg(long = "max-diff-size", default_value = "200000", value_parser = clap::value_parser!(u32).range(0..))]
+    pub max_diff_size: u32,
+
     /// Path to LMDB cache file for API responses
     #[arg(long = "cache", required = false)]
     pub cache_path: Option<String>,

@@ -24,6 +24,10 @@ struct Args {
     #[arg(long = "patch-context-lines", default_value = "3", value_parser = clap::value_parser!(u32).range(0..))]
     patch_context_lines: u32,
 
+    /// Maximum size of the diff provided as context in bytes
+    #[arg(long = "max-diff-size", default_value = "200000", value_parser = clap::value_parser!(u32).range(0..))]
+    max_diff_size: u32,
+
     /// Path to LMDB cache file for API responses
     #[arg(long = "cache", required = false)]
     cache_path: Option<String>,
