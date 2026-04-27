@@ -5,43 +5,97 @@
 
 import matplotlib.pyplot as plt
 import re
+import sys
+import os
 
 # 1. Data Definition
-# Format: (Display Name, Accuracy %, Accuracy Stripped %)
-# Note: Percentages are stored as floats (e.g., 69.09)
-data = [
-    ("Claude Opus 4.6", 69.09, 76.17),
-    ("Gemini 3.1 Pro (reasoning low)", 68.73, 75.29),
-    ("Patchpal AI 7B (beam #0)", 67.1, 73.6),
-    ("Claude Sonnet 4.0", 66.70, 73.34),
-    ("Claude Sonnet 4.5", 65.10, 73.16),
-    ("Qwen3.5-27B", 63.86, 71.48),
-    ("Gemini 3 Flash (reasoning none)", 64.13, 73.43),
-    ("Claude Sonnet 4.6", 60.67, 66.61),
-    ("Devstral-Small-2-24B", 57.22, 67.32),
-    ("Qwen3.5-35B-A3B", 56.86, 66.34),
-    ("Gemini 2.5 Pro (reasoning high)", 55.18, 63.42),
-    ("Qwen3-Coder-Next", 53.32, 61.74),
-    ("Qwen3.5-9B", 53.06, 59.96),
-    ("Gemini 2.5 Pro (reasoning low, userctx)", 52.44, 59.70),
-    ("Qwen3-Coder-30B-A3B", 49.69, 56.78),
-    ("Gemini 2.5 Flash (reasoning none, default context)", 49.60, 63.42),
-    ("Gemini 2.5 Flash (reasoning low, user context)", 42.52, 55.98),
-    # Secondary Beams
-    ("Patchpal AI 7B (beam #1)", 10.54, 30.03),
-    ("Gemini 2.5 Flash (reasoning low, default context)", 7.97, 10.27),
-    ("Qwen3-Coder-30B (beam #1)", 7.71, 16.56),
-    ("Patchpal AI 7B (beam #2)", 3.37, 23.83),
-    ("Qwen3-Coder-30B (beam #2)", 1.95, 11.87),
+# Format: List of model names
+models = [
+    "AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal",
+    "Claude Opus 4.6 (default)",
+    "Claude Opus 4.7 (default)",
+    "Gemini 3.1 Pro (low default)",
+    "Patchpal AI 7B #0",
+    "Claude Sonnet 4.0 (default)",
+    "Claude Sonnet 4.5 (default)",
+    "Qwen3.5-27B-UD-Q6_K_XL (gbnf)",
+    "Gemini 3 Flash (none default)",
+    "Claude Sonnet 4.6 (default)",
+    "Devstral-Small-2-24B-Instruct-2512-UD-Q6_K_XL (default)",
+    "Qwen3.5-35B-A3B-UD-Q6_K_S (gbnf)",
+    "Gemini 2.5 Pro (high)",
+    "Qwen3-Coder-Next-UD-Q6_K_XL (default)",
+    "Qwen3.5-9B-UD-Q8_K_XL (gbnf)",
+    "Gemini 2.5 Pro (low userctx)",
+    "Qwen3-Coder-30B-A3B-Instruct-Q6_K (default)",
+    "Gemini 2.5 Flash (none default)",
+    "Gemini 2.5 Flash (none no_diff)",
+    "Gemini 2.5 Flash (low userctx)",
+    # "Gemini 2.5 Flash (low default)",
 ]
 
+
+def get_data(model_list):
+    """
+    Search README.md in the parent directory for accuracy, accuracy aligned, accuracy stripped, and error rate values
+    for the given list of models and return the data in the original format.
+    """
+    # Determine the path to README.md
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    parent_dir = os.path.dirname(script_dir)
+    readme_path = os.path.join(parent_dir, "README.md")
+
+    if not os.path.exists(readme_path):
+        raise FileNotFoundError(f"README.md not found at {readme_path}")
+
+    with open(readme_path, "r", encoding="utf-8") as f:
+        readme_content = f.read()
+
+    data = []
+    for model_name in model_list:
+        # Escape special regex characters in model name
+        escaped_name = re.escape(model_name)
+        # Pattern to match the model line in README.md
+        # Example: "Model: Claude Opus 4.6 (default)"
+        # We look for the model name followed by optional parenthetical info
+        pattern = rf"Model:\s*{escaped_name}.*?\n.*?Accuracy:\s*([\d.]+)%.*?Accuracy\s*\(aligned\):\s*([\d.]+)%.*?Accuracy\s*\(stripped\):\s*([\d.]+)%.*?Error Rate:\s*([\d.]+)%"
+        matches = list(re.finditer(pattern, readme_content, re.DOTALL))
+
+        if len(matches) == 0:
+            raise ValueError(f"Could not find accuracy data for model: {model_name}")
+        if len(matches) > 1:
+            raise ValueError(f"Found multiple matches for model: {model_name}")
+
+        match = matches[0]
+        accuracy = float(match.group(1))
+        accuracy_aligned = float(match.group(2))
+        accuracy_stripped = float(match.group(3))
+        error_rate = float(match.group(4))
+        model_name = model_name.replace("(", "\n(")
+        model_name = model_name.replace("+", "\n+")
+        data.append(
+            (
+                model_name,
+                accuracy,
+                accuracy_aligned,
+                accuracy_stripped,
+                error_rate,
+            )
+        )
+
+    return data
+
+
 # 2. Preprocessing: Sort by Accuracy (Stripped) descending
+data = get_data(models)
 data.sort(key=lambda x: x[1], reverse=True)
 
 # Extract lists for plotting
 models = [d[0] for d in data]
 accuracy = [d[1] for d in data]
-accuracy_stripped = [d[2] for d in data]
+accuracy_aligned = [d[2] for d in data]
+accuracy_stripped = [d[3] for d in data]
+error_rate = [d[4] for d in data]
 
 # 3. Setup Plot
 plt.style.use("seaborn-v0_8-dark")
@@ -49,11 +103,11 @@ fig, ax = plt.subplots(figsize=(16, 9))
 
 # Define positions for grouped bars
 x = range(len(models))
-bar_width = 0.3
+bar_width = 0.2
 
 # Plot bars
 bars1 = ax.bar(
-    [i - bar_width / 2 for i in x],
+    [i - 3 * bar_width / 2 for i in x],
     accuracy,
     width=bar_width,
     label="Accuracy",
@@ -62,6 +116,15 @@ bars1 = ax.bar(
     edgecolor="black",
 )
 bars2 = ax.bar(
+    [i - bar_width / 2 for i in x],
+    accuracy_aligned,
+    width=bar_width,
+    label="Accuracy (Aligned)",
+    color="#9b59b6",
+    alpha=0.9,
+    edgecolor="black",
+)
+bars3 = ax.bar(
     [i + bar_width / 2 for i in x],
     accuracy_stripped,
     width=bar_width,
@@ -70,19 +133,28 @@ bars2 = ax.bar(
     alpha=0.9,
     edgecolor="black",
 )
+bars4 = ax.bar(
+    [i + 3 * bar_width / 2 for i in x],
+    error_rate,
+    width=bar_width,
+    label="Error Rate",
+    color="#e74c3c",
+    alpha=0.9,
+    edgecolor="black",
+)
 
 # 4. Customization
-ax.set_xlabel("Model", fontsize=12, fontweight="bold")
+# ax.set_xlabel("Model", fontsize=12, fontweight="bold")
 ax.set_ylabel("Percentage (%)", fontsize=12, fontweight="bold")
 ax.set_title(
-    'Model Performance: "Accuracy" vs. "Accuracy (Stripped)"\nSorted by "Accuracy"',
+    'Model Performance: "Accuracy" vs. "Accuracy (Aligned)" vs "Accuracy (Stripped)"\nSorted by "Accuracy"',
     fontsize=14,
     fontweight="bold",
     pad=20,
 )
 ax.set_xticks(x)
-ax.set_xticklabels(models, rotation=90, fontsize=9)
-ax.legend(loc="upper right", fontsize=11)
+ax.set_xticklabels(models, rotation=90, fontsize=9, ha="right")
+ax.legend(loc="best", fontsize=11)
 ax.set_ylim(0, 100)
 
 
@@ -91,9 +163,9 @@ def add_labels(bars):
     for bar in bars:
         height = bar.get_height()
         ax.text(
-            bar.get_x() + bar.get_width() / 3.0,
+            bar.get_x() + bar.get_width() / 2.0,
             height + 0.5,
-            f"{height:.1f}",
+            f"{height:.0f}",
             ha="center",
             va="bottom",
             fontsize=8,
@@ -103,6 +175,8 @@ def add_labels(bars):
 
 add_labels(bars1)
 add_labels(bars2)
+add_labels(bars3)
+add_labels(bars4)
 
 # Adjust layout to prevent label cutoff
 plt.tight_layout()

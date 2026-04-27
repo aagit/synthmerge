@@ -297,7 +297,7 @@ The following statistics were generated using the `synthmerge_bench` tool on a C
 
 This measurement used only new test data never exposed to the model during the fine tuning process.
 
-![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260421.jpg)
+![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260427.jpg)
 
 ### The Numbers
 
@@ -305,6 +305,19 @@ This measurement used only new test data never exposed to the model during the f
 - **Multi-Model**: ~88% chance that at least one correct solution is presented (ignoring whitespaces, model dependent).
 
 ```
+Model: AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal
+  Accuracy: 71.48% (807/1129)
+  Accuracy (aligned): 74.40% (840/1129)
+  Accuracy (stripped): 77.59% (876/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5838.40
+  Average duration: 0.00 s
+  Average prob: 94.7% (+- 5.5)
+  Average prob (incorrect): 91.7% (+- 6.4)
+  Average prob (stripped): 95.3% (+- 5.0)
+  Average prob (aligned): 95.4% (+- 5.0)
+  Average prob (correct): 95.5% (+- 5.0)
+
 Model: Claude Opus 4.6 (default)
   Accuracy: 69.09% (780/1129)
   Accuracy (aligned): 72.72% (821/1129)
@@ -330,7 +343,7 @@ Model: Gemini 3.1 Pro (medium default) # reasoning_effort: medium
   Average duration: 9.78 s
 
 # only the Patchpal Beam 0 is comparable to the non Patchpal models
-Model: Patchpal AI 7B
+Model: Patchpal AI 7B #0
   Accuracy: 67.05% (757/1129)
   Accuracy (aligned): 70.95% (801/1129) # might be duplicate with other beams
   Accuracy (stripped): 73.60% (831/1129) # might be duplicate with other beams
@@ -349,6 +362,14 @@ Model: Claude Sonnet 4.0 (default)
   Error Rate: 0.00% (0/1129)
   Average tokens: 5730.47
   Average duration: 7.03 s
+
+Model: Claude Opus 4.7 (default)
+  Accuracy: 65.90% (744/1129)
+  Accuracy (aligned): 68.91% (778/1129)
+  Accuracy (stripped): 72.28% (816/1129)
+  Error Rate: 0.35% (4/1129)
+  Average tokens: 7144.33
+  Average duration: 3.45 s
 
 Model: Claude Opus 4.6 (no_diff)
   Accuracy: 65.28% (737/1129)
@@ -375,8 +396,8 @@ Model: Claude Sonnet 4.5 (default)
   Average duration: 3.04 s
 
 # temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
-# llama.cpp vulkan UD-Q6_K_XL enable_thinking: false
-Model: Qwen3.5-27B (gbnf)
+# llama.cpp vulkan enable_thinking: false
+Model: Qwen3.5-27B-UD-Q6_K_XL (gbnf)
   Accuracy: 63.86% (721/1129)
   Accuracy (aligned): 68.20% (770/1129)
   Accuracy (stripped): 71.48% (807/1129)
@@ -422,8 +443,8 @@ Model: Gemini 3.1 Flash Lite (none default) # reasoning_effort: none
   Average duration: 1.20 s
 
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
-# llama.cpp vulkan UD-Q6_K_XL
-Model: Devstral-Small-2-24B-Instruct-2512 (default)
+# llama.cpp vulkan
+Model: Devstral-Small-2-24B-Instruct-2512-UD-Q6_K_XL (default)
   Accuracy: 57.22% (646/1129)
   Accuracy (aligned): 64.30% (726/1129)
   Accuracy (stripped): 67.32% (760/1129)
@@ -437,8 +458,8 @@ Model: Devstral-Small-2-24B-Instruct-2512 (default)
   Average prob (correct): 6.4% (+- 33.6)
 
 # temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
-# llama.cpp vulkan UD-Q6_K_S enable_thinking: false
-Model: Qwen3.5-35B-A3B (gbnf)
+# llama.cpp vulkan enable_thinking: false
+Model: Qwen3.5-35B-A3B-UD-Q6_K_S (gbnf)
   Accuracy: 56.86% (642/1129)
   Accuracy (aligned): 63.06% (712/1129)
   Accuracy (stripped): 66.34% (749/1129)
@@ -458,8 +479,8 @@ Model: Gemini 2.5 Pro (high) # reasoning_effort: high
   Error Rate: 0.00% (0/1129)
 
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
-# llama.cpp vulkan UD-Q6_K_XL
-Model: Qwen3-Coder-Next (default)
+# llama.cpp vulkan
+Model: Qwen3-Coder-Next-UD-Q6_K_XL (default)
   Accuracy: 53.32% (602/1129)
   Accuracy (aligned): 58.64% (662/1129)
   Accuracy (stripped): 61.74% (697/1129)
@@ -476,8 +497,8 @@ Model: Gemini 2.5 Flash (none no_diff) # reasoning_effort: none
   Average duration: 1.18 s
 
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
-# llama.cpp vulkan UD-Q6_K_XL
-Model: Devstral-Small-2-24B-Instruct-2512 (no_diff)
+# llama.cpp vulkan
+Model: Devstral-Small-2-24B-Instruct-2512-UD-Q6_K_XL (no_diff)
   Accuracy: 53.06% (599/1129)
   Accuracy (aligned): 60.85% (687/1129)
   Accuracy (stripped): 63.86% (721/1129)
@@ -486,8 +507,8 @@ Model: Devstral-Small-2-24B-Instruct-2512 (no_diff)
   Average duration: 7.06 s
 
 # temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
-# llama.cpp vulkan UD-Q8_K_XL reasoning off
-Model: Qwen3.5-9B (gbnf)
+# llama.cpp vulkan reasoning off
+Model: Qwen3.5-9B-UD-Q8_K_XL (gbnf)
   Accuracy: 53.06% (599/1129)
   Accuracy (aligned): 56.60% (639/1129)
   Accuracy (stripped): 59.96% (677/1129)
@@ -501,8 +522,8 @@ Model: Qwen3.5-9B (gbnf)
   Average prob (correct): 4.5% (+- 25.8)
 
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
-# llama.cpp vulkan UD-Q2_K_XL
-Model: Qwen3-Coder-Next (default)
+# llama.cpp vulkan
+Model: Qwen3-Coder-Next-UD-Q2_K_XL (default)
   Accuracy: 52.97% (598/1129)
   Accuracy (aligned): 59.61% (673/1129)
   Accuracy (stripped): 62.62% (707/1129)
@@ -525,8 +546,8 @@ Model: Gemini 2.5 Pro (low userctx) # reasoning_effort: low
   Average duration: 9.68 s
 
 # temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
-# llama.cpp vulkan UD-Q6_K_XL reasoning off
-Model: Qwen3.5-9B (gbnf)
+# llama.cpp vulkan reasoning off
+Model: Qwen3.5-9B-UD-Q6_K_XL (gbnf)
   Accuracy: 51.99% (587/1129)
   Accuracy (aligned): 56.16% (634/1129)
   Accuracy (stripped): 59.61% (673/1129)
@@ -549,8 +570,8 @@ Model: Gemini 2.5 Pro (low no_diff) # reasoning_effort: low
   Average duration: 9.11 s
 
 # temperature: 0.7 top_k: 20 top_p: 0.8 min_p: 0
-# llama.cpp vulkan Q6_K
-Model: Qwen3-Coder-30B-A3B-Instruct (default)
+# llama.cpp vulkan
+Model: Qwen3-Coder-30B-A3B-Instruct-Q6_K (default)
   Accuracy: 49.69% (561/1129)
   Accuracy (aligned): 54.21% (612/1129)
   Accuracy (stripped): 56.78% (641/1129)
@@ -581,8 +602,8 @@ Model: Gemini 2.5 Flash (low no_diff userctx) # reasoning_effort low
   Average duration: 4.62 s
 
 # temperature: 0.7 top_k: 20 top_p: 0.8 min_p: 0
-# llama.cpp vulkan Q6_K
-Model: Qwen3-Coder-30B-A3B-Instruct (no_diff)
+# llama.cpp vulkan
+Model: Qwen3-Coder-30B-A3B-Instruct-Q6_K (no_diff)
   Accuracy: 46.94% (530/1129)
   Accuracy (aligned): 51.02% (576/1129)
   Accuracy (stripped): 53.76% (607/1129)
@@ -596,7 +617,7 @@ Model: Qwen3-Coder-30B-A3B-Instruct (no_diff)
   Average prob (correct): 62.6% (+- 26.5)
 
 # context: layout: system_message: [ prompt ] user_message: [ training, diff ]
-Model: Gemini 2.5 Flash (low default userctx) # reasoning_effort: low
+Model: Gemini 2.5 Flash (low userctx) # reasoning_effort: low
   Accuracy: 42.52% (480/1129)
   Accuracy (aligned): 52.70% (595/1129)
   Accuracy (stripped): 55.98% (632/1129)
