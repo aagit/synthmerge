@@ -37,6 +37,8 @@ pub struct ResolvedConflict {
     pub logprob: Option<f64>,
     pub deduplicated_conflicts: Vec<ResolvedConflict>,
     pub endpoint: usize,
+    pub multi: Option<usize>,
+    pub beam: Option<usize>,
 }
 
 pub struct ResolverErrors {
@@ -456,6 +458,8 @@ impl<'a> ConflictResolver<'a> {
                             logprob,
                             deduplicated_conflicts: Vec::new(),
                             endpoint,
+                            beam: Some(beam),
+                            multi: Some(multi),
                         });
                     }
                 }

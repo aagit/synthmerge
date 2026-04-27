@@ -471,6 +471,18 @@ impl Bench {
         }
     }
 
+    fn generate_failed_patched_code(resolved_version: &str, patched_code: &str) -> Option<String> {
+        if resolved_version == patched_code {
+            None
+        } else {
+            Some(ConflictResolver::create_diff(
+                resolved_version,
+                patched_code,
+                1,
+            ))
+        }
+    }
+
     pub async fn run_test(
         &mut self,
         config: &Config,
@@ -518,6 +530,7 @@ impl Bench {
             }
         });
 
+        let mut ai_consensus_model_names = std::collections::HashSet::new();
         let mut modified = false;
         for (i, entry) in entries
             .iter()
@@ -578,7 +591,7 @@ impl Bench {
             );
 
             let resolved_conflicts = resolver.resolve_conflicts(&[conflict]).await;
-            match resolved_conflicts {
+            let resolved_conflicts = match resolved_conflicts {
                 Ok((resolved_conflicts, resolved_errors)) => {
                     assert!(!(resolved_conflicts.is_empty() && resolved_errors.errors.is_empty()));
                     for (model_name, error_count) in resolved_errors.errors.iter() {
@@ -612,26 +625,66 @@ impl Bench {
                             duration: resolved_conflict.duration,
                             tokens: resolved_conflict.total_tokens,
                             logprob: resolved_conflict.logprob,
-                            failed_patched_code: if resolved_conflict.resolved_version
-                                == entry.patched_code
-                            {
-                                None
-                            } else {
-                                Some(ConflictResolver::create_diff(
-                                    &resolved_conflict.resolved_version,
-                                    &entry.patched_code.clone(),
-                                    1,
-                                ))
-                            },
+                            failed_patched_code: Self::generate_failed_patched_code(
+                                &resolved_conflict.resolved_version,
+                                &entry.patched_code,
+                            ),
                             error: false,
                             patch_commit_hash: entry.patch_commit_hash.clone(),
                             code_commit_hash: entry.code_commit_hash.clone(),
                         };
                         self.results.push(test_result);
                     }
+                    resolved_conflicts
                 }
                 Err(e) => anyhow::bail!("Failed to resolve conflicts: {}", e),
             };
+
+            let deduplicated_conflicts = GitUtils::deduplicate_conflicts_vibe(&resolved_conflicts);
+
+            let ai_consensus_model = "AI consensus".to_string();
+            let ai_consensus_result = if deduplicated_conflicts.is_empty() {
+                TestResult {
+                    entry_index: i,
+                    model: ai_consensus_model,
+                    correct: false,
+                    correct_aligned: false,
+                    correct_stripped: false,
+                    duration: 0.0,
+                    tokens: None,
+                    logprob: None,
+                    failed_patched_code: None,
+                    error: true,
+                    patch_commit_hash: entry.patch_commit_hash.clone(),
+                    code_commit_hash: entry.code_commit_hash.clone(),
+                }
+            } else {
+                let first_conflict = &deduplicated_conflicts[0];
+                for dedup_conflict in &first_conflict.deduplicated_conflicts {
+                    ai_consensus_model_names
+                        .insert((dedup_conflict.endpoint, dedup_conflict.model.clone()));
+                }
+                TestResult {
+                    entry_index: i,
+                    model: ai_consensus_model,
+                    correct: first_conflict.resolved_version == entry.patched_code,
+                    correct_aligned: self
+                        .aligned(&first_conflict.resolved_version, &entry.patched_code),
+                    correct_stripped: self
+                        .stripped(&first_conflict.resolved_version, &entry.patched_code),
+                    duration: first_conflict.duration,
+                    tokens: first_conflict.total_tokens,
+                    logprob: first_conflict.logprob,
+                    failed_patched_code: Self::generate_failed_patched_code(
+                        &first_conflict.resolved_version,
+                        &entry.patched_code,
+                    ),
+                    error: false,
+                    patch_commit_hash: entry.patch_commit_hash.clone(),
+                    code_commit_hash: entry.code_commit_hash.clone(),
+                }
+            };
+            self.results.push(ai_consensus_result);
 
             modified = true;
             if let Ok(exit_code) = rx.try_recv() {
@@ -649,6 +702,31 @@ impl Bench {
         if modified {
             self.save_checkpoint(&args)?;
         }
+
+        let mut sorted_model_names: Vec<_> = ai_consensus_model_names.iter().collect();
+
+        // Verify no duplicate model names with different endpoints
+        let mut seen_models = std::collections::HashMap::new();
+        for (endpoint, model_name) in &sorted_model_names {
+            if let Some(existing_endpoint) = seen_models.get(model_name) {
+                if existing_endpoint != endpoint {
+                    panic!(
+                        "Duplicate model name '{}' found with different endpoints: {} and {}",
+                        model_name, existing_endpoint, endpoint
+                    );
+                }
+            } else {
+                seen_models.insert(model_name.clone(), *endpoint);
+            }
+        }
+
+        sorted_model_names.sort_by(|a, b| a.0.cmp(&b.0));
+        let ai_consensus_model = sorted_model_names
+            .iter()
+            .map(|(_, model)| model.as_str())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        println!("AI Consensus: {}", ai_consensus_model);
 
         Ok(())
     }

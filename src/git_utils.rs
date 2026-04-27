@@ -542,7 +542,7 @@ impl GitUtils {
         conflicts: &[Conflict],
         resolved_conflicts: &[ResolvedConflict],
     ) -> Result<()> {
-        let resolved_conflicts = Self::deduplicate_conflicts(resolved_conflicts);
+        let resolved_conflicts = Self::deduplicate_conflicts_vibe(resolved_conflicts);
 
         // Group conflicts by file
         let mut conflicts_by_file = std::collections::HashMap::new();
@@ -726,6 +726,15 @@ impl GitUtils {
         commit_and_continue(&operation)
     }
 
+    pub fn deduplicate_conflicts_vibe(conflicts: &[ResolvedConflict]) -> Vec<ResolvedConflict> {
+        let filtered: Vec<_> = conflicts
+            .iter()
+            .filter(|c| c.multi == Some(0) && c.beam == Some(0))
+            .cloned()
+            .collect();
+        Self::deduplicate_conflicts(&filtered)
+    }
+
     fn deduplicate_conflicts(conflicts: &[ResolvedConflict]) -> Vec<ResolvedConflict> {
         use std::collections::HashMap;
         let mut map: HashMap<(String, usize, &str), Vec<&ResolvedConflict>> = HashMap::new();
@@ -784,6 +793,8 @@ impl GitUtils {
                     })
                     .cloned()
                     .collect(),
+                beam: None,
+                multi: None,
             });
         }
 
