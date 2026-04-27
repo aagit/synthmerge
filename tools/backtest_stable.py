@@ -65,7 +65,7 @@ def parse_git_log(git_log_output: str) -> List[Tuple[str, str]]:
                     break
 
     # Add the last commit if it exists
-    if upstream_commit and upstream_pattern:
+    if current_commit and upstream_commit:
         commits.append((current_commit, upstream_commit))
 
     return commits
@@ -80,7 +80,6 @@ def run_command(
     Args:
         command: The command to run
         check: Whether to raise an exception if the command fails
-        expect_failure: Whether to expect the command to fail (when check=True)
 
     Returns:
         The command output as a string, or None if check=False and command fails
