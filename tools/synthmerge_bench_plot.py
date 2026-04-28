@@ -11,7 +11,9 @@ import os
 # 1. Data Definition
 # Format: List of model names
 models = [
+    "AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Patchpal",
     "AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal",
+    "AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6",
     "Claude Opus 4.6 (default)",
     "Claude Opus 4.7 (default)",
     "Gemini 3.1 Pro (low default)",
@@ -19,10 +21,11 @@ models = [
     "Claude Sonnet 4.0 (default)",
     "Claude Sonnet 4.5 (default)",
     "Qwen3.5-27B-UD-Q6_K_XL (gbnf)",
+    "Qwen3.6-27B-UD-Q6_K_XL (gbnf)",
+    "Qwen3.6-35B-A3B-UD-Q6_K_XL (gbnf)",
     "Gemini 3 Flash (none default)",
     "Claude Sonnet 4.6 (default)",
     "Devstral-Small-2-24B-Instruct-2512-UD-Q6_K_XL (default)",
-    "Qwen3.5-35B-A3B-UD-Q6_K_S (gbnf)",
     "Gemini 2.5 Pro (high)",
     "Qwen3-Coder-Next-UD-Q6_K_XL (default)",
     "Qwen3.5-9B-UD-Q8_K_XL (gbnf)",
@@ -58,7 +61,7 @@ def get_data(model_list):
         # Pattern to match the model line in README.md
         # Example: "Model: Claude Opus 4.6 (default)"
         # We look for the model name followed by optional parenthetical info
-        pattern = rf"Model:\s*{escaped_name}.*?\n.*?Accuracy:\s*([\d.]+)%.*?Accuracy\s*\(aligned\):\s*([\d.]+)%.*?Accuracy\s*\(stripped\):\s*([\d.]+)%.*?Error Rate:\s*([\d.]+)%"
+        pattern = rf"Model:\s*{escaped_name}(?:\s+#.*?)?\n.*?Accuracy:\s*([\d.]+)%.*?Accuracy\s*\(aligned\):\s*([\d.]+)%.*?Accuracy\s*\(stripped\):\s*([\d.]+)%.*?Error Rate:\s*([\d.]+)%"
         matches = list(re.finditer(pattern, readme_content, re.DOTALL))
 
         if len(matches) == 0:

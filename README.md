@@ -297,7 +297,7 @@ The following statistics were generated using the `synthmerge_bench` tool on a C
 
 This measurement used only new test data never exposed to the model during the fine tuning process.
 
-![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260427.jpg)
+![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260428.jpg)
 
 ### The Numbers
 
@@ -305,18 +305,26 @@ This measurement used only new test data never exposed to the model during the f
 - **Multi-Model**: ~88% chance that at least one correct solution is presented (ignoring whitespaces, model dependent).
 
 ```
+Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Patchpal
+  Accuracy: 71.74% (810/1129)
+  Accuracy (aligned): 74.84% (845/1129)
+  Accuracy (stripped): 77.68% (877/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5883.78
+
 Model: AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal
   Accuracy: 71.48% (807/1129)
   Accuracy (aligned): 74.40% (840/1129)
   Accuracy (stripped): 77.59% (876/1129)
   Error Rate: 0.00% (0/1129)
   Average tokens: 5838.40
-  Average duration: 0.00 s
-  Average prob: 94.7% (+- 5.5)
-  Average prob (incorrect): 91.7% (+- 6.4)
-  Average prob (stripped): 95.3% (+- 5.0)
-  Average prob (aligned): 95.4% (+- 5.0)
-  Average prob (correct): 95.5% (+- 5.0)
+
+Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6
+  Accuracy: 70.68% (798/1129)
+  Accuracy (aligned): 74.22% (838/1129)
+  Accuracy (stripped): 77.24% (872/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5907.26
 
 Model: Claude Opus 4.6 (default)
   Accuracy: 69.09% (780/1129)
@@ -425,6 +433,35 @@ Model: Gemini 3 Flash (none no_diff) # reasoning_effort: none
   Error Rate: 2.04% (23/1129)
   Average tokens: 1084.24
   Average duration: 1.53 s
+
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
+# llama.cpp vulkan enable_thinking: false
+Model: Qwen3.6-35B-A3B-UD-Q6_K_XL (gbnf)
+  Accuracy: 62.09% (701/1129)
+  Accuracy (aligned): 66.16% (747/1129)
+  Accuracy (stripped): 69.26% (782/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 4555.88
+  Average duration: 7.11 s
+  Average prob: 8.9% (+- 36.7)
+  Average prob (incorrect): 1.7% (+- 29.8)
+  Average prob (stripped): 18.5% (+- 35.6)
+  Average prob (aligned): 20.0% (+- 35.3)
+  Average prob (correct): 23.6% (+- 34.7)
+
+# temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
+# llama.cpp vulkan enable_thinking: false
+Model: Qwen3.6-27B-UD-Q6_K_XL (gbnf)
+  Accuracy: 62.00% (700/1129)
+  Accuracy (aligned): 65.81% (743/1129)
+  Accuracy (stripped): 69.35% (783/1129)
+  Error Rate: 0.35% (4/1129)
+  Average tokens: 4562.85
+  Average prob: 5.9% (+- 36.5)
+  Average prob (incorrect): 1.0% (+- 28.9)
+  Average prob (stripped): 12.6% (+- 36.4)
+  Average prob (aligned): 14.2% (+- 36.3)
+  Average prob (correct): 17.0% (+- 35.9)
 
 Model: Claude Sonnet 4.6 (default)
   Accuracy: 60.67% (685/1129)
