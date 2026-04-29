@@ -447,7 +447,7 @@ impl Bench {
             if stats.avg_tokens.is_finite() {
                 println!("  Average tokens: {:.2}", stats.avg_tokens);
             }
-            if stats.avg_duration.is_finite() {
+            if stats.avg_duration.is_normal() {
                 println!("  Average duration: {:.2} s", stats.avg_duration);
             }
             let logprob_type_names = [
