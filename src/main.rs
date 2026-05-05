@@ -7,6 +7,7 @@ use crate::git_utils::{ContextLines, GitUtils};
 use anyhow::Result;
 use clap::Parser;
 
+mod api_cache;
 mod api_client;
 mod config;
 mod conflict_resolver;

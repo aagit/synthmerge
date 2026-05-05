@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
-use crate::api_client::{ApiCache, ApiClient, ApiRequest, ApiResponse};
+use crate::api_cache::ApiCache;
+use crate::api_client::{ApiClient, ApiRequest, ApiResponse};
 use crate::config::{Config, EndpointConfig, EndpointTypeConfig};
 use crate::git_utils::ContextLines;
 use crate::prob;
