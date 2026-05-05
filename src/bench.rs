@@ -588,6 +588,7 @@ impl Bench {
                 git_diff,
                 true,
                 args.cache_path.clone(),
+                args.cache_overwrite,
             );
 
             let resolved_conflicts = resolver.resolve_conflicts(&[conflict]).await;

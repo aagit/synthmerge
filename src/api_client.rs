@@ -20,11 +20,16 @@ use std::time::Duration;
 pub struct ApiCache {
     lmdb_env: lmdb::Environment,
     lmdb_db: lmdb::Database,
+    overwrite: bool,
 }
 
 impl ApiCache {
-    pub fn new(lmdb_env: lmdb::Environment, lmdb_db: lmdb::Database) -> Self {
-        ApiCache { lmdb_env, lmdb_db }
+    pub fn new(lmdb_env: lmdb::Environment, lmdb_db: lmdb::Database, overwrite: bool) -> Self {
+        ApiCache {
+            lmdb_env,
+            lmdb_db,
+            overwrite,
+        }
     }
 
     fn get_cache_key(&self, url: &str, payload_json: &str) -> String {
@@ -54,6 +59,9 @@ impl ApiCache {
     }
 
     fn get_cached_response(&self, cache_key: &String) -> Option<String> {
+        if self.overwrite {
+            return None;
+        }
         let env = &self.lmdb_env;
         let txn = env
             .begin_ro_txn()

@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
             git_diff,
             false,
             args.cache_path.clone(),
+            args.cache_overwrite,
         );
         let resolved_conflicts = resolver.resolve_conflicts(&conflicts).await?.0;
 

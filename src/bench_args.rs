@@ -53,6 +53,14 @@ pub struct BenchArgs {
     /// Path to LMDB cache file for API responses
     #[arg(long = "cache", required = false)]
     pub cache_path: Option<String>,
+
+    /// Overwrite mode: disables cache lookup, only writes new entries
+    #[arg(
+        long = "cache-overwrite",
+        default_value = "false",
+        requires = "cache_path"
+    )]
+    pub cache_overwrite: bool,
 }
 
 // Local Variables:

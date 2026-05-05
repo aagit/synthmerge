@@ -73,6 +73,7 @@ impl<'a> ConflictResolver<'a> {
         git_diff: Option<String>,
         bench: bool,
         cache_path: Option<String>,
+        cache_overwrite: bool,
     ) -> Self {
         let mut api_cache: Option<Arc<ApiCache>> = None;
         if let Some(ref path) = cache_path {
@@ -88,7 +89,7 @@ impl<'a> ConflictResolver<'a> {
             let db = env
                 .create_db(None, lmdb::DatabaseFlags::empty())
                 .expect("open index db");
-            api_cache = Some(Arc::new(ApiCache::new(env, db)));
+            api_cache = Some(Arc::new(ApiCache::new(env, db, cache_overwrite)));
         }
         ConflictResolver {
             context_lines,
