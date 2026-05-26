@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
-use crate::api_client::{ApiClient, ApiRequest, ApiResponse};
+use crate::api_client::{ApiCache, ApiClient, ApiRequest, ApiResponse};
 use crate::config::{Config, EndpointConfig, EndpointTypeConfig};
 use crate::git_utils::ContextLines;
 use crate::prob;
@@ -53,8 +53,7 @@ pub struct ConflictResolver<'a> {
     bench: bool,
     start_regex: Regex,
     end_regex: Regex,
-    lmdb_env: Option<Arc<lmdb::Environment>>,
-    lmdb_db: Option<Arc<lmdb::Database>>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 impl<'a> ConflictResolver<'a> {
@@ -75,8 +74,7 @@ impl<'a> ConflictResolver<'a> {
         bench: bool,
         cache_path: Option<String>,
     ) -> Self {
-        let mut lmdb_env: Option<Arc<lmdb::Environment>> = None;
-        let mut lmdb_db: Option<Arc<lmdb::Database>> = None;
+        let mut api_cache: Option<Arc<ApiCache>> = None;
         if let Some(ref path) = cache_path {
             let dir = Path::new(path);
             if !dir.exists() {
@@ -90,8 +88,7 @@ impl<'a> ConflictResolver<'a> {
             let db = env
                 .create_db(None, lmdb::DatabaseFlags::empty())
                 .expect("open index db");
-            lmdb_env = Some(Arc::new(env));
-            lmdb_db = Some(Arc::new(db));
+            api_cache = Some(Arc::new(ApiCache::new(env, db)));
         }
         ConflictResolver {
             context_lines,
@@ -101,8 +98,7 @@ impl<'a> ConflictResolver<'a> {
             bench,
             start_regex: Regex::new(Self::REGEXP_PATCHED_CODE_START).unwrap(),
             end_regex: Regex::new(Self::REGEXP_PATCHED_CODE_END).unwrap(),
-            lmdb_env,
-            lmdb_db,
+            api_cache,
         }
     }
 
@@ -141,11 +137,7 @@ impl<'a> ConflictResolver<'a> {
             // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
             for (endpoint_index, endpoint) in endpoints.iter().enumerate() {
-                let client = ApiClient::new(
-                    endpoint.clone(),
-                    self.lmdb_env.clone(),
-                    self.lmdb_db.clone(),
-                );
+                let client = ApiClient::new(endpoint.clone(), self.api_cache.clone());
                 let name = endpoint.name.clone();
                 let api_request = ApiRequest {
                     prompt: prompt.clone(),

@@ -17,6 +17,54 @@ use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub struct ApiCache {
+    lmdb_env: lmdb::Environment,
+    lmdb_db: lmdb::Database,
+}
+
+impl ApiCache {
+    pub fn new(lmdb_env: lmdb::Environment, lmdb_db: lmdb::Database) -> Self {
+        ApiCache { lmdb_env, lmdb_db }
+    }
+
+    fn get_cache_key(&self, url: &str, payload_json: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(url);
+        hasher.update(payload_json);
+        let hash = hasher.finalize();
+        format!("{:x}", hash)
+    }
+
+    fn cache_response(&self, cache_key: &String, response: String) -> Result<()> {
+        let compressed =
+            zstd::encode_all(response.as_bytes(), 0).expect("Failed to compress response");
+        let env = &self.lmdb_env;
+        let mut txn = env
+            .begin_rw_txn()
+            .expect("Failed to start read transaction");
+        txn.put(
+            self.lmdb_db,
+            cache_key,
+            &compressed,
+            lmdb::WriteFlags::empty(),
+        )
+        .expect("Failed to cache response");
+        txn.commit().expect("Failed to commit transaction");
+        Ok(())
+    }
+
+    fn get_cached_response(&self, cache_key: &String) -> Option<String> {
+        let env = &self.lmdb_env;
+        let txn = env
+            .begin_ro_txn()
+            .expect("Failed to start read transaction");
+        txn.get(self.lmdb_db, cache_key)
+            .ok()
+            .and_then(|v| zstd::decode_all(v).ok())
+            .map(|compressed| String::from_utf8_lossy(&compressed).to_string())
+    }
+}
+
 #[derive(Debug)]
 pub struct ApiRequest {
     pub prompt: String,
@@ -69,65 +117,18 @@ pub type ApiResponse = Vec<Vec<Result<ApiResponseEntry>>>;
 pub struct ApiClient {
     endpoint: EndpointConfig,
     client: reqwest::Client,
-    lmdb_env: Option<Arc<lmdb::Environment>>,
-    lmdb_db: Option<Arc<lmdb::Database>>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 impl ApiClient {
-    pub fn new(
-        endpoint: EndpointConfig,
-        lmdb_env: Option<Arc<lmdb::Environment>>,
-        lmdb_db: Option<Arc<lmdb::Database>>,
-    ) -> Self {
+    pub fn new(endpoint: EndpointConfig, api_cache: Option<Arc<ApiCache>>) -> Self {
         let client = Self::create_client(&endpoint);
 
         ApiClient {
             endpoint,
             client: client.expect("Failed to create client"),
-            lmdb_env,
-            lmdb_db,
+            api_cache,
         }
-    }
-
-    fn get_cache_key(&self, url: &str, payload_json: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(url);
-        hasher.update(payload_json);
-        let hash = hasher.finalize();
-        format!("{:x}", hash)
-    }
-
-    fn cache_response(&self, cache_key: &String, response: String) -> Result<()> {
-        if self.lmdb_env.is_none() {
-            return Ok(());
-        }
-        let compressed =
-            zstd::encode_all(response.as_bytes(), 0).expect("Failed to compress response");
-        let env = self.lmdb_env.as_ref().expect("No environment available");
-        let mut txn = env
-            .begin_rw_txn()
-            .expect("Failed to start read transaction");
-        txn.put(
-            **self.lmdb_db.as_ref().unwrap(),
-            cache_key,
-            &compressed,
-            lmdb::WriteFlags::empty(),
-        )
-        .expect("Failed to cache response");
-        txn.commit().expect("Failed to commit transaction");
-        Ok(())
-    }
-
-    fn get_cached_response(&self, cache_key: &String) -> Option<String> {
-        self.lmdb_env.as_ref()?;
-        let env = self.lmdb_env.as_ref().expect("No environment available");
-        let txn = env
-            .begin_ro_txn()
-            .expect("Failed to start read transaction");
-        txn.get(**self.lmdb_db.as_ref().unwrap(), cache_key)
-            .ok()
-            .and_then(|v| zstd::decode_all(v).ok())
-            .map(|compressed| String::from_utf8_lossy(&compressed).to_string())
     }
 
     pub fn create_client(endpoint: &EndpointConfig) -> Result<reqwest::Client> {
@@ -784,29 +785,35 @@ impl ApiClient {
         let mut delay = Duration::from_millis(self.endpoint.delay);
         let max_delay = Duration::from_millis(self.endpoint.max_delay);
 
-        let cache_key = self.get_cache_key(url, &serde_json::to_string(payload).unwrap());
-        if let Some(response_text) = self.get_cached_response(&cache_key) {
-            let api_response = response_handler(&response_text, perplexity, 0.);
-            match api_response {
-                Ok(r) => return Ok(r),
-                Err(e) => {
-                    if let Some(
-                        ApiRequestError::ExceedContextSize
-                        | ApiRequestError::ContentFilterRecitation
-                        | ApiRequestError::IncompleteGeneration,
-                    ) = e.downcast_ref::<ApiRequestError>()
-                    {
-                        return Err(e);
-                    } else {
-                        bail!(
-                            "Cached response failed with recoverable error for {}: {}",
-                            self.endpoint.name,
-                            e
-                        );
+        let cache_key = match &self.api_cache {
+            Some(cache) => {
+                let key = cache.get_cache_key(url, &serde_json::to_string(payload).unwrap());
+                if let Some(response_text) = cache.get_cached_response(&key) {
+                    let api_response = response_handler(&response_text, perplexity, 0.);
+                    match api_response {
+                        Ok(r) => return Ok(r),
+                        Err(e) => {
+                            if let Some(
+                                ApiRequestError::ExceedContextSize
+                                | ApiRequestError::ContentFilterRecitation
+                                | ApiRequestError::IncompleteGeneration,
+                            ) = e.downcast_ref::<ApiRequestError>()
+                            {
+                                return Err(e);
+                            } else {
+                                bail!(
+                                    "Cached response failed with recoverable error for {}: {}",
+                                    self.endpoint.name,
+                                    e
+                                );
+                            }
+                        }
                     }
                 }
+                Some(key)
             }
-        }
+            None => None,
+        };
 
         log::trace!(
             "Request JSON ({}):\n{}",
@@ -847,7 +854,9 @@ impl ApiClient {
 
                     match response_handler(&response_text, perplexity, duration) {
                         Ok(api_response) => {
-                            self.cache_response(&cache_key, response_text)?;
+                            if let (Some(cache), Some(key)) = (&self.api_cache, &cache_key) {
+                                cache.cache_response(key, response_text)?;
+                            }
                             self.apply_wait().await;
                             return Ok(api_response);
                         }
@@ -858,7 +867,11 @@ impl ApiClient {
                                     | ApiRequestError::ContentFilterRecitation
                                     | ApiRequestError::IncompleteGeneration => {
                                         // If it's a context size error, don't retry
-                                        self.cache_response(&cache_key, response_text)?;
+                                        if let (Some(cache), Some(key)) =
+                                            (&self.api_cache, &cache_key)
+                                        {
+                                            cache.cache_response(key, response_text)?;
+                                        }
                                         self.apply_wait().await;
                                         return Err(e);
                                     }
