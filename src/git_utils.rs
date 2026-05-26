@@ -930,11 +930,11 @@ impl GitUtils {
 
     /// Update the git index
     fn git_update_index(&self) -> Result<()> {
-        // First get the current status in v2 format
+        // First get the current status in v2 format with null-terminated entries
         let status_output = GitCommand::new("git")
-            .args(["status", "--porcelain=v2"])
+            .args(["status", "--porcelain=v2", "-z"])
             .output()
-            .context("Failed to execute git status --porcelain=v2")?;
+            .context("Failed to execute git status --porcelain=v2 -z")?;
 
         if !status_output.status.success() {
             return Err(anyhow::anyhow!(
@@ -945,8 +945,12 @@ impl GitUtils {
 
         // Parse the status output to find files that are unmerged with our state deleted (D)
         // and their state updated (U), or vice versa (U and D)
-        let status_output_str = String::from_utf8_lossy(&status_output.stdout);
-        for line in status_output_str.lines() {
+        // Split by null byte to handle paths with newlines
+        let status_output_bytes = &status_output.stdout;
+        let lines = status_output_bytes.split(|&b| b == b'\0').peekable();
+
+        for line_bytes in lines {
+            let line = String::from_utf8_lossy(line_bytes);
             // Skip header lines
             if line.starts_with('#') {
                 continue;
