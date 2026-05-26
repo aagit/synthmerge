@@ -380,7 +380,11 @@ impl<'a> ConflictResolver<'a> {
 
                             continue;
                         }
-                        let leading_tail_context = &format!("\n{}", &conflict.tail_context);
+                        let leading_tail_context = if !conflict.head_context.is_empty() {
+                            &format!("\n{}", &conflict.tail_context)
+                        } else {
+                            &conflict.tail_context
+                        };
                         let mut found_context = false;
                         for _ in 0..conflict.nr_tail_context_lines.saturating_sub(1).max(1) {
                             if new_resolved_string.ends_with(leading_tail_context) {
