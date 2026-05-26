@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2025  Red Hat, Inc.
 
+mod api_cache;
 mod api_client;
 pub mod bench;
 pub mod bench_args;
