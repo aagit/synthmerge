@@ -32,6 +32,14 @@ struct Args {
     #[arg(long = "cache", required = false)]
     cache_path: Option<String>,
 
+    /// Overwrite mode: disables cache lookup, only writes new entries
+    #[arg(
+        long = "cache-overwrite",
+        default_value = "false",
+        requires = "cache_path"
+    )]
+    cache_overwrite: bool,
+
     /// Automatically resolve conflicts and update the git index.
     #[arg(long = "vibe", default_value = "false")]
     vibe: bool,
