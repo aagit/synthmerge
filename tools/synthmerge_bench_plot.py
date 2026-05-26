@@ -11,12 +11,15 @@ import os
 # 1. Data Definition
 # Format: List of model names
 models = [
+    "AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Gemini 3.5 Flash",
     "AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Patchpal",
     "AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal",
-    "AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6",
-    "Claude Opus 4.6 (default)",
-    "Claude Opus 4.7 (default)",
+    "Claude Opus 4.8 (default adaptive)",
+    "Claude Opus 4.7 (default adaptive)",
+    "Claude Opus 4.6 (default adaptive)",
     "Gemini 3.1 Pro (low default)",
+    "Gemini 3.5 Flash (high default)",
+    "Gemini 3.5 Flash (none default)",
     "Patchpal AI 7B #0",
     "Claude Sonnet 4.0 (default)",
     "Claude Sonnet 4.5 (default)",
@@ -26,13 +29,13 @@ models = [
     "Gemini 3 Flash (none default)",
     "Claude Sonnet 4.6 (default)",
     "Devstral-Small-2-24B-Instruct-2512-UD-Q6_K_XL (default)",
-    "Gemini 2.5 Pro (high)",
-    "Qwen3-Coder-Next-UD-Q6_K_XL (default)",
+    #"Gemini 2.5 Pro (high)",
+    #"Qwen3-Coder-Next-UD-Q6_K_XL (default)",
     "Qwen3.5-9B-UD-Q8_K_XL (gbnf)",
     "Gemini 2.5 Pro (low userctx)",
-    "Qwen3-Coder-30B-A3B-Instruct-Q6_K (default)",
+    #"Qwen3-Coder-30B-A3B-Instruct-Q6_K (default)",
     "Gemini 2.5 Flash (none default)",
-    "Gemini 2.5 Flash (none no_diff)",
+    #"Gemini 2.5 Flash (none no_diff)",
     "Gemini 2.5 Flash (low userctx)",
     # "Gemini 2.5 Flash (low default)",
 ]
@@ -166,9 +169,9 @@ def add_labels(bars):
     for bar in bars:
         height = bar.get_height()
         ax.text(
-            bar.get_x() + bar.get_width() / 2.0,
+            bar.get_x() + bar.get_width() / 100,
             height + 0.5,
-            f"{height:.0f}",
+            f"{height:.1f}",
             ha="center",
             va="bottom",
             fontsize=8,

@@ -297,7 +297,7 @@ The following statistics were generated using the `synthmerge_bench` tool on a C
 
 This measurement used only new test data never exposed to the model during the fine tuning process.
 
-![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260428.jpg)
+![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260610.jpg)
 
 ### The Numbers
 
@@ -319,12 +319,27 @@ Model: AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal
   Error Rate: 0.00% (0/1129)
   Average tokens: 5838.40
 
+Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Gemini 3.5 Flash
+  Accuracy: 70.95% (801/1129)
+  Accuracy (aligned): 74.49% (841/1129)
+  Accuracy (stripped): 77.95% (880/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 6764.86
+
 Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6
   Accuracy: 70.68% (798/1129)
   Accuracy (aligned): 74.22% (838/1129)
   Accuracy (stripped): 77.24% (872/1129)
   Error Rate: 0.00% (0/1129)
   Average tokens: 5907.26
+
+Model: Claude Opus 4.6 (default adaptive) # thinking adaptive
+  Accuracy: 69.35% (783/1129)
+  Accuracy (aligned): 72.63% (820/1129)
+  Accuracy (stripped): 76.00% (858/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 6051.32
+  Average duration: 7.70 s
 
 Model: Claude Opus 4.6 (default)
   Accuracy: 69.09% (780/1129)
@@ -350,6 +365,22 @@ Model: Gemini 3.1 Pro (medium default) # reasoning_effort: medium
   Average tokens: 6341.90
   Average duration: 9.78 s
 
+Model: Gemini 3.5 Flash (high default)
+  Accuracy: 67.76% (765/1129)
+  Accuracy (aligned): 74.05% (836/1129)
+  Accuracy (stripped): 77.33% (873/1129)
+  Error Rate: 0.18% (2/1129)
+  Average tokens: 8575.48
+  Average duration: 15.77 s
+
+Model: Gemini 3.5 Flash (medium default)
+  Accuracy: 67.05% (757/1129)
+  Accuracy (aligned): 73.60% (831/1129)
+  Accuracy (stripped): 76.97% (869/1129)
+  Error Rate: 0.27% (3/1129)
+  Average tokens: 7637.98
+  Average duration: 11.68 s
+
 # only the Patchpal Beam 0 is comparable to the non Patchpal models
 Model: Patchpal AI 7B #0
   Accuracy: 67.05% (757/1129)
@@ -363,6 +394,30 @@ Model: Patchpal AI 7B #0
   Average prob (aligned): 94.8% (+- 5.6)
   Average prob (correct): 95.0% (+- 5.3)
 
+Model: Claude Opus 4.7 (default adaptive) # thinking adaptive
+  Accuracy: 67.05% (757/1129)
+  Accuracy (aligned): 70.33% (794/1129)
+  Accuracy (stripped): 73.60% (831/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 7508.22
+  Average duration: 5.87 s
+
+Model: Gemini 3.5 Flash (none default)
+  Accuracy: 66.96% (756/1129)
+  Accuracy (aligned): 72.19% (815/1129)
+  Accuracy (stripped): 75.29% (850/1129)
+  Error Rate: 0.27% (3/1129)
+  Average tokens: 5351.88
+  Average duration: 1.93 s
+
+Model: Claude Opus 4.8 (default adaptive) # thinking adaptive
+  Accuracy: 66.78% (754/1129)
+  Accuracy (aligned): 70.59% (797/1129)
+  Accuracy (stripped): 73.87% (834/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 7503.43
+  Average duration: 7.10 s
+
 Model: Claude Sonnet 4.0 (default)
   Accuracy: 66.70% (753/1129)
   Accuracy (aligned): 70.42% (795/1129)
@@ -370,6 +425,14 @@ Model: Claude Sonnet 4.0 (default)
   Error Rate: 0.00% (0/1129)
   Average tokens: 5730.47
   Average duration: 7.03 s
+
+Model: Gemini 3.5 Flash (low default)
+  Accuracy: 66.61% (752/1129)
+  Accuracy (aligned): 73.43% (829/1129)
+  Accuracy (stripped): 76.62% (865/1129)
+  Error Rate: 0.35% (4/1129)
+  Average tokens: 6316.99
+  Average duration: 6.02 s
 
 Model: Claude Opus 4.7 (default)
   Accuracy: 65.90% (744/1129)
@@ -471,6 +534,14 @@ Model: Claude Sonnet 4.6 (default)
   Average tokens: 5768.64
   Average duration: 3.57 s
 
+Model: Claude Opus 4.8 (default)
+  Accuracy: 58.90% (665/1129)
+  Accuracy (aligned): 62.00% (700/1129)
+  Accuracy (stripped): 64.48% (728/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 7132.77
+  Average duration: 3.47 s
+
 Model: Gemini 3.1 Flash Lite (none default) # reasoning_effort: none
   Accuracy: 57.93% (654/1129)
   Accuracy (aligned): 65.90% (744/1129)
@@ -514,6 +585,21 @@ Model: Gemini 2.5 Pro (high) # reasoning_effort: high
   Accuracy (aligned): 60.67% (685/1129)
   Accuracy (stripped): 63.42% (716/1129)
   Error Rate: 0.00% (0/1129)
+
+# temperature: 0.15 top_k: 64 top_p: 0.95
+# llama.cpp vulkan --reasoning off
+Model: gemma-4-31B-it-Q6_K.gguf (gbnf)
+  Accuracy: 54.30% (613/1129)
+  Accuracy (aligned): 64.57% (729/1129)
+  Accuracy (stripped): 67.40% (761/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5385.62
+  Average duration: 23.21 s
+  Average prob: 71.5% (+- 25.0)
+  Average prob (incorrect): 56.8% (+- 30.9)
+  Average prob (stripped): 79.8% (+- 20.7)
+  Average prob (aligned): 80.3% (+- 20.2)
+  Average prob (correct): 81.9% (+- 18.8)
 
 # temperature: 0.15 top_k: default (40) top_p: default (0.95) min_p: 0.01
 # llama.cpp vulkan
@@ -652,6 +738,21 @@ Model: Qwen3-Coder-30B-A3B-Instruct-Q6_K (no_diff)
   Average prob (stripped): 53.8% (+- 29.1)
   Average prob (aligned): 57.3% (+- 27.9)
   Average prob (correct): 62.6% (+- 26.5)
+
+# temperature: 0.15 top_k: 64 top_p: 0.95
+# llama.cpp vulkan --reasoning off
+Model: gemma-4-26B-A4B-it-UD-Q6_K_XL.gguf (gbnf)
+  Accuracy: 43.93% (496/1129)
+  Accuracy (aligned): 60.41% (682/1129)
+  Accuracy (stripped): 63.42% (716/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5390.44
+  Average duration: 8.48 s
+  Average prob: 45.4% (+- 33.2)
+  Average prob (incorrect): 24.8% (+- 38.6)
+  Average prob (stripped): 64.3% (+- 27.3)
+  Average prob (aligned): 64.2% (+- 27.4)
+  Average prob (correct): 71.9% (+- 24.7)
 
 # context: layout: system_message: [ prompt ] user_message: [ training, diff ]
 Model: Gemini 2.5 Flash (low userctx) # reasoning_effort: low
