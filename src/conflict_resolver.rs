@@ -486,30 +486,48 @@ impl<'a> ConflictResolver<'a> {
 
     /// Create a prompt for the AI to resolve the conflict
     fn create_prompt(&self, conflict: &Conflict) -> String {
+        let head_lines = conflict.nr_head_context_lines;
+        let tail_lines = conflict.nr_tail_context_lines;
+
+        let context_instruction = if head_lines == 0 && tail_lines == 0 {
+            String::new()
+        } else if head_lines == 0 {
+            format!(
+                "\n\nRewrite the {nr_tail_context_lines} line{tail_plural} before {code_end} exactly the same, including all empty lines.",
+                nr_tail_context_lines = tail_lines,
+                tail_plural = if tail_lines != 1 { "s" } else { "" },
+                code_end = Self::CODE_END,
+            )
+        } else if tail_lines == 0 {
+            format!(
+                "\n\nRewrite the {nr_head_context_lines} line{head_plural} after {code_start} exactly the same, including all empty lines.",
+                nr_head_context_lines = head_lines,
+                head_plural = if head_lines != 1 { "s" } else { "" },
+                code_start = Self::CODE_START,
+            )
+        } else {
+            format!(
+                "\n\nRewrite the {nr_head_context_lines} line{head_plural} after {code_start} and the {nr_tail_context_lines} line{tail_plural} before {code_end} exactly the same, including all empty lines.",
+                nr_head_context_lines = head_lines,
+                nr_tail_context_lines = tail_lines,
+                head_plural = if head_lines != 1 { "s" } else { "" },
+                tail_plural = if tail_lines != 1 { "s" } else { "" },
+                code_start = Self::CODE_START,
+                code_end = Self::CODE_END,
+            )
+        };
+
         format!(
             r#"Apply the PATCH between {patch_start}{patch_end} to the CODE between {code_start}{code_end}.
 
-FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_code_end} instead of markdown fences.
-
-Rewrite the {nr_head_context_lines} line{head_plural} after {code_start} and the {nr_tail_context_lines} line{tail_plural} before {code_end} exactly the same, including all empty lines."#,
+FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_code_end} instead of markdown fences.{context_instruction}"#,
             patch_start = Self::PATCH_START,
             patch_end = Self::PATCH_END,
             code_start = Self::CODE_START,
             code_end = Self::CODE_END,
             patched_code_start = Self::PATCHED_CODE_START,
             patched_code_end = Self::PATCHED_CODE_END,
-            nr_head_context_lines = conflict.nr_head_context_lines,
-            nr_tail_context_lines = conflict.nr_tail_context_lines,
-            head_plural = if conflict.nr_head_context_lines != 1 {
-                "s"
-            } else {
-                ""
-            },
-            tail_plural = if conflict.nr_tail_context_lines != 1 {
-                "s"
-            } else {
-                ""
-            }
+            context_instruction = context_instruction,
         )
     }
 
