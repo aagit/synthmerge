@@ -592,6 +592,15 @@ impl ApiClient {
             "{}",
             chat.iter()
                 .enumerate()
+                .next()
+                .map(|(_, s)| format!("Chat[{}]:\n{}", 0, s.as_ref().unwrap()))
+                .unwrap_or_default()
+        );
+        log::info!(
+            "{}",
+            chat.iter()
+                .enumerate()
+                .skip(1)
                 .filter(|(_, s)| s.is_some())
                 .map(|(i, s)| format!("Chat[{}]:\n{}", i, s.as_ref().unwrap()))
                 .collect::<Vec<_>>()
