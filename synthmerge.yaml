@@ -1,5 +1,13 @@
 endpoints:
 
+  - name: "Gemini 3.1 Pro"
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    type: "openai"
+    api_key_file: "~/.keys/gemini.api-key"
+    json:
+      model: "gemini-3.1-pro-preview"
+      reasoning_effort: "low"
+
   - name: "Claude Opus 4.6"
     url: "https://api.anthropic.com/v1/messages"
     type: "anthropic"
@@ -7,17 +15,6 @@ endpoints:
     json:
       max_tokens: 20000
       model: "claude-opus-4-6"
-      temperature: 0
-    headers:
-      anthropic-version: "2023-06-01"
-
-  - name: "Claude Sonnet 4.5"
-    url: "https://api.anthropic.com/v1/messages"
-    type: "anthropic"
-    x_api_key_file: "~/.keys/anthropic.api-key"
-    json:
-      max_tokens: 20000
-      model: "claude-sonnet-4-5"
       temperature: 0
     headers:
       anthropic-version: "2023-06-01"
@@ -32,6 +29,25 @@ endpoints:
       anthropic_version: "vertex-2023-10-16"
       max_tokens: 20000
       temperature: 0
+
+  - name: "Gemini 3.5 Flash"
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    type: "openai"
+    api_key_file: "~/.keys/gemini.api-key"
+    json:
+      model: "gemini-3.5-flash"
+      reasoning_effort: "none"
+
+  - name: "Claude Sonnet 4.5"
+    url: "https://api.anthropic.com/v1/messages"
+    type: "anthropic"
+    x_api_key_file: "~/.keys/anthropic.api-key"
+    json:
+      max_tokens: 20000
+      model: "claude-sonnet-4-5"
+      temperature: 0
+    headers:
+      anthropic-version: "2023-06-01"
 
   - name: "Vertex Claude Sonnet 4.5"
     url: "https://aiplatform.googleapis.com/v1/projects/<project_id>/locations/global/publishers/anthropic/models/claude-sonnet-4-5@20250929:streamRawPredict"
@@ -59,14 +75,6 @@ endpoints:
     type: "patchpal"
     url: "http://patchpal.usersys.redhat.com:9080/v1"
     #n_beams: 3
-
-  - name: "Gemini 3 Flash Preview"
-    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-    type: "openai"
-    api_key_file: "~/.keys/gemini.api-key"
-    json:
-      model: "gemini-3-flash-preview"
-      reasoning_effort: "none"
 
   - name: "llama.cpp vulkan minimal"
     url: "http://localhost:8811/v1/chat/completions"
