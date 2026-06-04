@@ -603,61 +603,16 @@ static inline struct feat *get_special_something(double option, struct device *d
             conflict.head_context, conflict.remote, conflict.tail_context
         );
 
-        let diff = Self::create_diff(&base, &remote, self.context_lines.patch_context_lines);
-        {
-            // workaround for imara-diff unified diff initial content_len
-            if let Some((base, remote)) = Self::context_trim_imara_diff_workaround(
-                &base,
-                &remote,
-                &diff,
-                self.context_lines.patch_context_lines.try_into().unwrap(),
-            ) {
-                return Self::create_diff(&base, &remote, self.context_lines.patch_context_lines);
-            }
-        }
-        diff
-    }
-
-    fn context_trim_imara_diff_workaround(
-        base: &str,
-        remote: &str,
-        diff: &str,
-        max_context_lines: usize,
-    ) -> Option<(String, String)> {
-        // Count equal context lines from the diff output before the first +/- line
-        let mut equal_context: usize = 0;
-        let mut difference = false;
-        for line in diff.lines() {
-            assert!(!line.is_empty());
-            if line.starts_with("---") || line.starts_with("+++") || line.starts_with("@@") {
-                assert!(equal_context == 0);
-            } else if line.starts_with(' ') {
-                equal_context += 1;
-            } else if line.starts_with('+') || line.starts_with('-') {
-                difference = true;
-                break;
-            }
-        }
-
-        if equal_context > max_context_lines && difference {
-            let base_lines: Vec<&str> = base.split_inclusive('\n').collect();
-            let remote_lines: Vec<&str> = remote.split_inclusive('\n').collect();
-            equal_context = equal_context.saturating_sub(max_context_lines);
-            let base = base_lines[equal_context..].join("");
-            let remote = remote_lines[equal_context..].join("");
-            return Some((base, remote));
-        }
-        None
+        Self::create_diff(&base, &remote, self.context_lines.patch_context_lines)
     }
 
     pub fn create_diff(base: &str, remote: &str, patch_context_lines: u32) -> String {
-        use imara_diff::{Algorithm, BasicLineDiffPrinter, Diff, InternedInput, UnifiedDiffConfig};
-        let input = InternedInput::new(base, remote);
-        let mut diff = Diff::compute(Algorithm::Histogram, &input);
-        diff.postprocess_lines(&input);
-        let mut config = UnifiedDiffConfig::default();
-        config.context_len(patch_context_lines);
-        diff.unified_diff(&BasicLineDiffPrinter(&input.interner), config, &input)
+        use similar::{Algorithm, TextDiff};
+        let diff = TextDiff::configure()
+            .algorithm(Algorithm::Histogram)
+            .diff_lines(base, remote);
+        diff.unified_diff()
+            .context_radius(patch_context_lines as usize)
             .to_string()
     }
 
