@@ -210,18 +210,14 @@ impl GitUtils {
         marker_size: usize,
         mode: ConflictMarkerMode,
     ) -> Result<(usize, usize, String, String)> {
-        let head_context_end = (start_line.saturating_sub(1)).max(0);
-        let head_content_lines = content_lines[..start_line].to_vec();
+        let head_context_end = start_line.saturating_sub(1);
+        let head_content_lines = content_lines[..head_context_end].to_vec();
 
         const CONTEXT_BEYOND_MARKER: bool = false;
         let head_content_lines = if CONTEXT_BEYOND_MARKER {
-            Self::remove_conflict_markers(
-                head_content_lines[..head_context_end].to_vec(),
-                marker_size,
-                mode,
-            )
+            Self::remove_conflict_markers(head_content_lines.to_vec(), marker_size, mode)
         } else {
-            Ok(head_content_lines[..head_context_end]
+            Ok(head_content_lines
                 .iter()
                 .rev()
                 .take_while(|&&x| !x.starts_with(&Self::create_end_marker(marker_size)))
@@ -234,8 +230,7 @@ impl GitUtils {
         }?;
         let head_context_lines = head_content_lines[head_content_lines
             .len()
-            .saturating_sub(self.context_lines.code_context_lines as usize)
-            .max(0)..]
+            .saturating_sub(self.context_lines.code_context_lines as usize)..]
             .to_vec();
         let nr_head_context_lines = head_context_lines.len();
 

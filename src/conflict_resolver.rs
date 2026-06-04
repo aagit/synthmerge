@@ -401,8 +401,7 @@ impl<'a> ConflictResolver<'a> {
                             let diff = ConflictResolver::create_diff(
                                 &resolved_string[resolved_string
                                     .len()
-                                    .saturating_sub(leading_tail_context.len())
-                                    .max(0)..],
+                                    .saturating_sub(leading_tail_context.len())..],
                                 leading_tail_context,
                                 1,
                             );
