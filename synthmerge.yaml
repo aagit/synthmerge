@@ -4,6 +4,7 @@ endpoints:
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     type: "openai"
     api_key_file: "~/.keys/gemini.api-key"
+    primary: true
     json:
       model: "gemini-3.1-pro-preview"
       reasoning_effort: "low"
@@ -12,6 +13,7 @@ endpoints:
     url: "https://api.anthropic.com/v1/messages"
     type: "anthropic"
     x_api_key_file: "~/.keys/anthropic.api-key"
+    primary: true
     json:
       max_tokens: 20000
       model: "claude-opus-4-6"

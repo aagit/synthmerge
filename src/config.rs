@@ -31,6 +31,8 @@ pub struct EndpointConfig {
     pub context: Option<EndpointContext>,
     pub json: Option<EndpointJson>,
     pub headers: Option<EndpointHeaders>,
+    #[serde(default)]
+    pub primary: bool,
     #[serde(flatten)]
     pub config: EndpointTypeConfig,
 }
@@ -229,9 +231,18 @@ impl Config {
                 ));
             }
         }
+
+        Self::validate_primary(&mut config.endpoints);
+
         log::debug!("{:?}", config);
 
         Ok(config)
+    }
+
+    fn validate_primary(endpoints: &mut [EndpointConfig]) {
+        if !endpoints.iter().any(|e| e.primary) {
+            endpoints.iter_mut().for_each(|e| e.primary = true);
+        }
     }
 
     fn trim_endpoint_whitespace(endpoints: &mut [EndpointConfig]) {

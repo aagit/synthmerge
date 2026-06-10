@@ -207,6 +207,19 @@ endpoints:
     # ... other configuration parameters
 ```
 
+## 🎯 Primary Endpoints
+
+The `primary: true` flag designates endpoints as "primary" participants in the AI consensus.
+
+- **Hard Conflicts**: Only primary endpoints resolve "clean" hunks
+- **No Retries**: Only primary endpoints are required to participate in resolving all conflicts
+
+```yaml
+endpoints:
+  - name: "Primary Model"
+    primary: true
+```
+
 ## 🎨 Emacs Integration
 
 `synthmerge` ships with a modified `smerge-mode` plugin for that provides a visual interface to review and select AI-generated solutions alongside the original conflict [markers](git-conflict-solutions-marker.md).

@@ -221,6 +221,9 @@ impl<'a> ConflictResolver<'a> {
             // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
             for (endpoint_index, endpoint) in endpoints.iter().enumerate() {
+                if conflict.commit_type == CommitType::Clean && !endpoint.primary {
+                    continue;
+                }
                 let client = ApiClient::new(endpoint.clone(), self.lmdb_cache.clone());
                 let name = endpoint.name.clone();
                 let api_request = ApiRequest {
@@ -395,6 +398,9 @@ impl<'a> ConflictResolver<'a> {
         conflict: &Conflict,
         endpoints: &[EndpointConfig],
     ) {
+        let mut recoverable = [false, false];
+        let mut no_solutions = true;
+
         // Validate that the content starts with head_context and ends with tail_context
         for result in results {
             let endpoint = result.1;
@@ -408,6 +414,7 @@ impl<'a> ConflictResolver<'a> {
                 }
             };
 
+            let primary = if endpoints[endpoint].primary { 1 } else { 0 };
             for (variant, api_response_variant) in result.iter().enumerate() {
                 for (beam, api_response_entry) in api_response_variant.iter().enumerate() {
                     let api_response_entry = match api_response_entry {
@@ -427,9 +434,7 @@ impl<'a> ConflictResolver<'a> {
                             log::warn!("Skipping {} - {}", model, e);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             if beam == 0 {
-                                resolver_errors
-                                    .retry_files
-                                    .insert(conflict.file_path.clone());
+                                recoverable[primary] = true;
                             }
                             continue;
                         }
@@ -465,9 +470,7 @@ impl<'a> ConflictResolver<'a> {
                             log::info!("HeadContextDiff:\n{}", diff);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             if beam == 0 && multi == 0 {
-                                resolver_errors
-                                    .retry_files
-                                    .insert(conflict.file_path.clone());
+                                recoverable[primary] = true;
                             }
                             continue;
                         }
@@ -499,9 +502,7 @@ impl<'a> ConflictResolver<'a> {
                             log::info!("TailContextDiff:\n{}", diff);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             if beam == 0 && multi == 0 {
-                                resolver_errors
-                                    .retry_files
-                                    .insert(conflict.file_path.clone());
+                                recoverable[primary] = true;
                             }
                             continue;
                         }
@@ -515,9 +516,7 @@ impl<'a> ConflictResolver<'a> {
                             log::trace!("ResolvedContent:\n{}", resolved_string);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             if beam == 0 && multi == 0 {
-                                resolver_errors
-                                    .retry_files
-                                    .insert(conflict.file_path.clone());
+                                recoverable[primary] = true;
                             }
                             continue;
                         };
@@ -534,9 +533,7 @@ impl<'a> ConflictResolver<'a> {
                             log::trace!("ResolvedContent:\n{}", resolved_version);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             if beam == 0 && multi == 0 {
-                                resolver_errors
-                                    .retry_files
-                                    .insert(conflict.file_path.clone());
+                                recoverable[primary] = true;
                             }
                             continue;
                         }
@@ -564,9 +561,16 @@ impl<'a> ConflictResolver<'a> {
                             beam: Some(beam),
                             multi: Some(multi),
                         });
+                        no_solutions = false;
                     }
                 }
             }
+        }
+
+        if recoverable[1] || (no_solutions && recoverable[0]) {
+            resolver_errors
+                .retry_files
+                .insert(conflict.file_path.clone());
         }
     }
 
