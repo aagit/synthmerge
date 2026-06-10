@@ -1514,6 +1514,24 @@ impl GitUtils {
         Ok(git_dir)
     }
 
+    /// Check if cherry-pick was run without -x
+    fn check_cherry_pick_x(&self, merge_msg_content: &str) -> Result<()> {
+        let operation = self.find_operation_head(self.git_dir.as_ref().unwrap())?;
+        if let Some(op) = operation {
+            if op.command != "cherry-pick" {
+                return Ok(());
+            }
+        } else {
+            return Ok(());
+        }
+
+        if !merge_msg_content.contains("\n(cherry picked from commit ") {
+            log::warn!("git cherry-pick was run without the -x flag");
+        }
+
+        Ok(())
+    }
+
     /// Update the git merge message to include Assisted-by line
     fn update_merge_message(&self) -> Result<()> {
         let git_dir = self.git_dir.as_ref().unwrap();
@@ -1585,6 +1603,9 @@ impl GitUtils {
         })?;
 
         println!("Added \"{}\"", Self::ASSISTED_BY_LINE);
+
+        // Check for cherry-pick without -x flag
+        self.check_cherry_pick_x(&merge_msg_content)?;
 
         Ok(())
     }
