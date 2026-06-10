@@ -889,6 +889,7 @@ impl GitUtils {
     /// Apply resolved conflicts back to the repository
     pub fn apply_resolved_conflicts(&self, conflicts: &[ResolvedConflict]) -> Result<()> {
         let conflicts = Self::deduplicate_conflicts(conflicts);
+        let mut assisted = false;
 
         for conflict in conflicts.iter().rev() {
             println!(
@@ -955,10 +956,13 @@ impl GitUtils {
             fs::write(&path, lines.join("")).with_context(|| {
                 format!("Failed to write file: {}", conflict.conflict.file_path)
             })?;
+            assisted = true;
         }
 
         // Add Assisted-by line to merge message
-        self.update_merge_message()?;
+        if assisted {
+            self.update_merge_message()?;
+        }
 
         Ok(())
     }
