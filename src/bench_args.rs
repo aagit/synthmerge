@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
-// Copyright (C) 2025  Red Hat, Inc.
+// Copyright (C) 2025-2026  Red Hat, Inc.
 
 use clap::Parser;
 
@@ -47,20 +47,41 @@ pub struct BenchArgs {
     pub patch_context_lines: u32,
 
     /// Maximum size of the diff provided as context
-    #[arg(long = "max-diff-size", default_value = "200000", value_parser = clap::value_parser!(u32).range(0..))]
-    pub max_diff_size: u32,
+    #[arg(long = "max-context-size", default_value = "200000", value_parser = clap::value_parser!(u32).range(0..))]
+    pub max_context_size: u32,
 
     /// Path to LMDB cache file for API responses
-    #[arg(long = "cache", required = false)]
-    pub cache_path: Option<String>,
+    #[arg(long = "cache", default_value = concat!("~/.cache/", env!("CARGO_PKG_NAME"), "_cache"), conflicts_with = "no_cache")]
+    pub cache_path: String,
+
+    /// Disable cache
+    #[arg(long = "no-cache")]
+    pub no_cache: bool,
 
     /// Overwrite mode: disables cache lookup, only writes new entries
     #[arg(
         long = "cache-overwrite",
         default_value = "false",
-        requires = "cache_path"
+        conflicts_with = "no_cache"
     )]
     pub cache_overwrite: bool,
+
+    /// regenerate the patch with create_patch
+    #[arg(long = "create-patch", default_value = "true")]
+    pub create_patch: bool,
+}
+
+impl BenchArgs {
+    /// Returns the effective cache path.
+    /// If `no_cache` is true, returns `None`.
+    /// Otherwise, returns the `cache_path` value.
+    pub fn get_cache_path(&self) -> Option<String> {
+        if self.no_cache {
+            None
+        } else {
+            Some(self.cache_path.clone())
+        }
+    }
 }
 
 // Local Variables:

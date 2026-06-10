@@ -1,23 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
-// Copyright (C) 2025  Red Hat, Inc.
+// Copyright (C) 2025-2026  Red Hat, Inc.
 
 use crate::config::Config;
 use crate::conflict_resolver::ConflictResolver;
-use crate::git_utils::{ContextLines, GitUtils};
+use crate::git_utils::{ContextLines, GitUtils, ResolutionMode};
 use anyhow::Result;
 use clap::Parser;
 
-mod api_cache;
 mod api_client;
 mod config;
 mod conflict_resolver;
 mod git_utils;
+mod lmdb_cache;
 mod logger;
+mod patch_locator;
 mod prob;
 #[cfg(feature = "telemetry")]
 mod telemetry;
 
 include!("main_args.rs");
+
+impl Args {
+    /// Returns the effective cache path.
+    /// If `no_cache` is true, returns `None`.
+    /// Otherwise, returns the `cache_path` value.
+    pub fn get_cache_path(&self) -> Option<String> {
+        if self.no_cache {
+            None
+        } else {
+            Some(self.cache_path.clone())
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,14 +44,30 @@ async fn main() -> Result<()> {
 
     log::info!("Using config file: {}", args.config_path);
 
+    // Determine resolution mode
+    let resolution_mode = if args.vibe {
+        if args.with_markers {
+            ResolutionMode::VibeWithMarkers
+        } else {
+            ResolutionMode::VibeWithPatchLocator
+        }
+    } else {
+        ResolutionMode::Interactive
+    };
+
+    let context_lines = ContextLines {
+        code_context_lines: args.code_context_lines,
+        diff_context_lines: args.diff_context_lines,
+        patch_context_lines: args.patch_context_lines,
+        extra_conflict_lines: args.extra_conflict_lines,
+    };
     // Initialize git utilities
     let mut git_utils = GitUtils::new(
-        ContextLines {
-            code_context_lines: args.code_context_lines,
-            diff_context_lines: args.diff_context_lines,
-            patch_context_lines: args.patch_context_lines,
-        },
-        true,
+        context_lines.clone(),
+        args.get_cache_path(),
+        args.cache_overwrite,
+        resolution_mode,
+        args.retries as usize,
     );
 
     // Try to cherry-pick with diff3 mode
@@ -47,21 +77,22 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    let git_diff = if let Some(commit_hash) = git_utils.find_commit_hash()? {
+        log::info!("Extracting diff for commit {}", commit_hash);
+        git_utils.extract_diff(&commit_hash, args.max_context_size)?
+    } else {
+        None
+    };
+
+    let mut prev_conflicts = Vec::new();
     loop {
         // Check if we're in a cherry-pick and extract commit if needed
-        let git_diff = if let Some(commit_hash) = git_utils.find_commit_hash()? {
-            log::info!("Extracting diff for commit {}", commit_hash);
-            git_utils.extract_diff(&commit_hash, args.max_diff_size)?
-        } else {
-            None
-        };
-
         // Check if there are conflicts
-        let conflicts = git_utils.find_conflicts()?;
+        let conflicts = git_utils.find_conflicts(args.max_context_size, &prev_conflicts)?;
 
         if conflicts.is_empty() {
             println!("No conflicts found.");
-            if args.continue_op && git_utils.continue_operation(true)? {
+            if args.continue_op && git_utils.continue_operation(&context_lines)? {
                 continue;
             }
             return Ok(());
@@ -71,25 +102,31 @@ async fn main() -> Result<()> {
 
         // Resolve conflicts using AI
         let resolver = ConflictResolver::new(
-            ContextLines {
-                code_context_lines: args.code_context_lines,
-                diff_context_lines: args.diff_context_lines,
-                patch_context_lines: args.patch_context_lines,
-            },
             &config,
-            git_diff,
+            git_diff.clone(),
             false,
-            args.cache_path.clone(),
+            args.get_cache_path(),
             args.cache_overwrite,
         );
-        let resolved_conflicts = resolver.resolve_conflicts(&conflicts).await?.0;
+        let resolved = resolver
+            .resolve_conflicts(&conflicts, &prev_conflicts)
+            .await?;
+        let (resolved_conflicts, resolved_errors) = resolved;
 
         let mut repeat = false;
         if args.vibe {
-            match git_utils.apply_vibe_resolution(&conflicts, &resolved_conflicts) {
-                Ok(()) => {
-                    if args.continue_op {
-                        repeat = git_utils.continue_operation(false)?;
+            match git_utils.apply_vibe_resolution(
+                &conflicts,
+                &resolved_conflicts,
+                &resolved_errors.retry_files,
+            ) {
+                Ok(no_conflicts_left) => {
+                    if no_conflicts_left {
+                        if args.continue_op {
+                            repeat = git_utils.continue_operation(&context_lines)?;
+                        }
+                    } else {
+                        repeat = true;
                     }
                 }
                 Err(e) => {
@@ -110,6 +147,21 @@ async fn main() -> Result<()> {
         if !repeat {
             break;
         }
+
+        prev_conflicts = ConflictResolver::keep_solved_conflicts(
+            conflicts,
+            &resolved_conflicts,
+            &resolved_errors.retry_files,
+            config.get_all_endpoints().len(),
+        );
+    }
+
+    if !args.vibe {
+        println!(
+            "Interactive mode restricts the solution within diff3 conflict markers.\n\
+             Use --vibe for enhanced resolution, but always review \
+             the result with `git diff --cached`."
+        );
     }
 
     Ok(())

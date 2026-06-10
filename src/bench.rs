@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
-// Copyright (C) 2025  Red Hat, Inc.
+// Copyright (C) 2025-2026  Red Hat, Inc.
 
 use crate::bench_args::BenchArgs;
 use crate::config::{Config, EndpointTypeConfig};
 use crate::conflict_resolver::{Conflict, ConflictResolver};
-use crate::git_utils::{ContextLines, GitUtils};
+use crate::git_utils::{ContextLines, GitUtils, ResolutionMode};
 use crate::prob::logprob_to_prob;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -495,10 +495,17 @@ impl Bench {
             code_context_lines: args.code_context_lines,
             diff_context_lines: args.diff_context_lines,
             patch_context_lines: args.patch_context_lines,
+            extra_conflict_lines: 0,
         };
 
         // Create a new GitUtils instance to find the commit hash
-        let git_utils = GitUtils::new(context_lines.clone(), false);
+        let git_utils = GitUtils::new(
+            context_lines,
+            args.get_cache_path(),
+            args.cache_overwrite,
+            ResolutionMode::Interactive,
+            0,
+        );
 
         // Load existing checkpoint
         self.load_checkpoint(&args)?;
@@ -565,14 +572,14 @@ impl Bench {
                 if let Some(diff) =
                     self.git_show_dirs(&git_utils, &args.git_directories, commit_hash, None)
                 {
-                    if diff.len() <= args.max_diff_size.try_into().unwrap() {
+                    if diff.len() <= args.max_context_size.try_into().unwrap() {
                         // Store the diff for future use
                         self.git_diffs.insert(commit_hash.clone(), diff.clone());
                         return Some(diff);
                     } else {
                         log::warn!(
                             "Git diff exceeds max size ({} bytes), skipping",
-                            args.max_diff_size
+                            args.max_context_size
                         );
                         return None;
                     }
@@ -580,18 +587,21 @@ impl Bench {
                 panic!("Git diff for commit {} not found", commit_hash);
             });
 
-            let conflict = self.create_conflict_from_entry(entry)?;
+            let conflict = self.create_conflict_from_entry(
+                entry,
+                args.create_patch,
+                args.patch_context_lines,
+            )?;
 
             let resolver = ConflictResolver::new(
-                context_lines.clone(),
                 config,
                 git_diff,
                 true,
-                args.cache_path.clone(),
+                args.get_cache_path(),
                 args.cache_overwrite,
             );
 
-            let resolved_conflicts = resolver.resolve_conflicts(&[conflict]).await;
+            let resolved_conflicts = resolver.resolve_conflicts(&[conflict], &Vec::new()).await;
             let resolved_conflicts = match resolved_conflicts {
                 Ok((resolved_conflicts, resolved_errors)) => {
                     assert!(!(resolved_conflicts.is_empty() && resolved_errors.errors.is_empty()));
@@ -823,7 +833,12 @@ impl Bench {
             .join("\n")
     }
 
-    fn create_conflict_from_entry(&self, entry: &TestEntry) -> Result<Conflict> {
+    fn create_conflict_from_entry(
+        &self,
+        entry: &TestEntry,
+        create_patch: bool,
+        patch_context_lines: u32,
+    ) -> Result<Conflict> {
         let mut base_lines = Vec::new();
         let mut remote_lines = Vec::new();
         let mut nr_head_context_lines = 0;
@@ -858,20 +873,22 @@ impl Bench {
             panic!("malformed patch: {:?}", entry.patch);
         }
         let nr_tail_context_lines = line_count;
-        let base = base_lines.join("");
-        let remote = remote_lines.join("");
+        let patch = if create_patch {
+            ConflictResolver::create_diff(
+                &base_lines.join(""),
+                &remote_lines.join(""),
+                patch_context_lines,
+            )
+        } else {
+            entry.patch.clone()
+        };
         Ok(Conflict {
             file_path: entry.filename.clone(),
-            local: entry.code.clone(),
-            base,
-            remote,
-            head_context: String::new(),
-            tail_context: String::new(),
-            start_line: 0,
-            remote_end: 0,
+            conflict_code: entry.code.clone(),
+            conflict_patch: patch,
             nr_head_context_lines,
             nr_tail_context_lines,
-            marker_size: 0,
+            ..Default::default()
         })
     }
 }

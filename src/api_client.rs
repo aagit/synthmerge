@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
-// Copyright (C) 2025  Red Hat, Inc.
+// Copyright (C) 2025-2026  Red Hat, Inc.
 
-use crate::api_cache::ApiCache;
 use crate::config::{
     EndpointConfig, EndpointContextElement, EndpointContextLayout, EndpointJson,
     EndpointTypeConfig, EndpointVariants,
 };
 use crate::conflict_resolver::ConflictResolver;
+use crate::lmdb_cache::{ApiCache, LmdbCacheImpl};
 use crate::prob;
 use anyhow::{Context, Result, bail};
 use reqwest::Certificate;
@@ -68,17 +68,17 @@ pub type ApiResponse = Vec<Vec<Result<ApiResponseEntry>>>;
 pub struct ApiClient {
     endpoint: EndpointConfig,
     client: reqwest::Client,
-    api_cache: Option<Arc<ApiCache>>,
+    lmdb_cache: Option<Arc<LmdbCacheImpl>>,
 }
 
 impl ApiClient {
-    pub fn new(endpoint: EndpointConfig, api_cache: Option<Arc<ApiCache>>) -> Self {
+    pub fn new(endpoint: EndpointConfig, lmdb_cache: Option<Arc<LmdbCacheImpl>>) -> Self {
         let client = Self::create_client(&endpoint);
 
         ApiClient {
             endpoint,
             client: client.expect("Failed to create client"),
-            api_cache,
+            lmdb_cache,
         }
     }
 
@@ -575,7 +575,6 @@ impl ApiClient {
                     }
                 }
             }
-            assert!(!message.contains("\n\n\n"), "{}", message);
             assert!(!message.chars().next().is_some_and(char::is_whitespace));
             assert!(!message.chars().last().is_some_and(char::is_whitespace));
         }
@@ -745,9 +744,9 @@ impl ApiClient {
         let mut delay = Duration::from_millis(self.endpoint.delay);
         let max_delay = Duration::from_millis(self.endpoint.max_delay);
 
-        let cache_key = match &self.api_cache {
+        let cache_key = match &self.lmdb_cache {
             Some(cache) => {
-                let key = cache.get_cache_key(url, &serde_json::to_string(payload).unwrap());
+                let key = cache.get_cache_key(&[url, &serde_json::to_string(payload).unwrap()]);
                 if let Some(response_text) = cache.get_cached_response(&key) {
                     let api_response = response_handler(&response_text, perplexity, 0.);
                     match api_response {
@@ -814,7 +813,7 @@ impl ApiClient {
 
                     match response_handler(&response_text, perplexity, duration) {
                         Ok(api_response) => {
-                            if let (Some(cache), Some(key)) = (&self.api_cache, &cache_key) {
+                            if let (Some(cache), Some(key)) = (&self.lmdb_cache, &cache_key) {
                                 cache.cache_response(key, response_text)?;
                             }
                             self.apply_wait().await;
@@ -828,7 +827,7 @@ impl ApiClient {
                                     | ApiRequestError::IncompleteGeneration => {
                                         // If it's a context size error, don't retry
                                         if let (Some(cache), Some(key)) =
-                                            (&self.api_cache, &cache_key)
+                                            (&self.lmdb_cache, &cache_key)
                                         {
                                             cache.cache_response(key, response_text)?;
                                         }

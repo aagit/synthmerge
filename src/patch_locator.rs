@@ -1,0 +1,1959 @@
+// SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
+// Copyright (C) 2026  Red Hat, Inc.
+
+use crate::conflict_resolver::{CommitType, Conflict, Snippet};
+use crate::git_utils::ContextLines;
+use crate::lmdb_cache::{LmdbCacheImpl, PatchLocatorCache};
+use anyhow::Result;
+use regex::Regex;
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use textdistance::nstr;
+
+/// Convert a byte offset to a line number (0-based)
+fn bytes_to_lines(bytes: &[u8], offset: usize) -> usize {
+    memchr::memchr_iter(b'\n', &bytes[..offset.min(bytes.len())]).count()
+}
+
+/// Convert a line number (0-based) to a byte offset
+fn _lines_to_bytes(bytes: &[u8], line: usize) -> usize {
+    if line == 0 {
+        return 0;
+    }
+    let mut count = 0;
+    for pos in memchr::memchr_iter(b'\n', bytes) {
+        count += 1;
+        if count == line {
+            return pos + 1;
+        }
+    }
+    bytes.len()
+}
+
+/// Represents a single hunk from a git diff
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hunk {
+    /// The text after the second @@
+    pub header: String,
+    /// The body of the hunk containing context lines (prefixed with space)
+    /// All lines in body must be prefixed with a space.
+    pub body: Vec<String>,
+    /// Start line in the base file
+    pub base_start: usize,
+    /// Length of the base section (lines with ' ' or '-')
+    pub base_len: usize,
+    /// Start line in the remote file
+    pub remote_start: usize,
+    /// Length of the remote section (lines with ' ' or '+')
+    pub remote_len: usize,
+}
+
+impl std::fmt::Display for Hunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "@@ -{},{} +{},{} @@{}",
+            self.base_start, self.base_len, self.remote_start, self.remote_len, self.header
+        )?;
+        for line in &self.body {
+            write!(f, "{}", line)?;
+        }
+        Ok(())
+    }
+}
+
+impl Hunk {
+    const KEEP_ALL_CONTEXT: bool = false;
+
+    /// Returns the base and remote ranges for this hunk, accounting for head/tail context.
+    fn get_ranges(&self) -> (usize, usize, usize, usize) {
+        let head = self.get_head_context(None).len();
+        let tail = self.get_tail_context(None).len();
+        let hunk_base_start = self.base_start - 1 + head;
+        let hunk_base_end = hunk_base_start + self.base_len - head - tail;
+        let hunk_remote_start = self.remote_start - 1 + head;
+        let hunk_remote_end = hunk_remote_start + self.remote_len - head - tail;
+        (
+            hunk_base_start,
+            hunk_base_end,
+            hunk_remote_start,
+            hunk_remote_end,
+        )
+    }
+
+    /// Merges adjacent or overlapping hunks into a single hunk.
+    ///
+    /// Sorts the input hunks by `base_start` and then walks the list, merging
+    /// any hunk that starts within the end of the previous hunk.
+    /// The resulting hunk combines the bodies and updates the base/remote lengths.
+    pub fn merge(mut hunks: Vec<Hunk>) -> Vec<Hunk> {
+        // Sort by base_start
+        hunks.sort_by_key(|h| h.base_start);
+
+        let mut merged = Vec::new();
+        let mut current = hunks.remove(0);
+
+        for next in hunks {
+            // Check if next hunk overlaps or is adjacent to current
+            // current covers base_start to base_start + base_len
+            // next starts at next.base_start
+            if next.base_start <= current.base_start + current.base_len {
+                // Append non-overlapping lines from next.body
+                // to current.body We need to figure out how many
+                // lines of current.body overlap with next Since base
+                // lines are ' ' or '-', and remote are ' ' or '+' The
+                // overlap in base lines is (current.base_start +
+                // current.base_len) - next.base_start
+                let overlap_base = (current.base_start + current.base_len) - next.base_start;
+
+                // We assume the body lines are sequential.
+                // The first `overlap_base` lines of next.body
+                // correspond to the end of current.body
+                // So we append lines from next.body starting at index
+                // `overlap_base`
+
+                let mut new_body = current.body;
+                if overlap_base < next.body.len() {
+                    new_body.extend_from_slice(&next.body[overlap_base..]);
+                }
+
+                // Update lengths
+                // The new base length is the number of base lines in new_body
+                // The new remote length is the number of remote lines in new_body
+                // We can just count them from the body or update incrementally.
+                // Counting is safer to ensure consistency.
+                let mut new_base_len = 0;
+                let mut new_remote_len = 0;
+                for line in &new_body {
+                    if line.starts_with(' ') || line.starts_with('-') {
+                        new_base_len += 1;
+                    }
+                    if line.starts_with(' ') || line.starts_with('+') {
+                        new_remote_len += 1;
+                    }
+                }
+
+                current.body = new_body;
+                current.base_len = new_base_len;
+                current.remote_len = new_remote_len;
+                // The base_start and remote_start remain those of the
+                // first hunk in the merged group
+            } else {
+                // No overlap, push current and start new
+                merged.push(current);
+                current = next;
+            }
+        }
+        merged.push(current);
+        merged
+    }
+
+    /// Returns the head context lines for this hunk.
+    /// Head context lines are the leading lines that start with a space (context)
+    /// The returned lines are trimmed (leading whitespace stripped).
+    /// If `limit` is Some, only the first `limit` lines are returned.
+    fn get_head_context(&self, limit: Option<usize>) -> Vec<String> {
+        self.__get_context(true, limit)
+    }
+
+    /// Returns the tail context lines for this hunk.
+    /// Tail context lines are the trailing lines that start with a space (context)
+    /// The returned lines are trimmed (leading whitespace stripped).
+    /// If `limit` is Some, only the last `limit` lines are returned.
+    fn get_tail_context(&self, limit: Option<usize>) -> Vec<String> {
+        self.__get_context(false, limit)
+    }
+
+    /// Common implementation for get_head_context and get_tail_context.
+    /// If `head` is true, collects from the beginning of the body.
+    /// If `head` is false, collects from the end of the body.
+    /// If `limit` is Some, only up to `limit` lines are returned.
+    fn __get_context(&self, head: bool, limit: Option<usize>) -> Vec<String> {
+        let mut result = Vec::new();
+        let body_len = self.body.len();
+        if body_len == 0 {
+            return result;
+        }
+
+        let iter: Box<dyn Iterator<Item = &String>> = if head {
+            Box::new(self.body.iter())
+        } else {
+            Box::new(self.body.iter().rev())
+        };
+
+        for line in iter {
+            // Context lines start with a space.
+            // We stop if we encounter a line that doesn't start with a space.
+            if let Some(remainder) = line.strip_prefix(' ') {
+                result.push(remainder.to_string());
+            } else {
+                // If it doesn't start with whitespace, break
+                break;
+            }
+        }
+        if let Some(lim) = limit
+            && result.len() > lim
+        {
+            result.drain(..result.len() - lim);
+        }
+
+        if !head {
+            result.reverse();
+        }
+
+        result
+    }
+
+    /// Extracts the patch conflict code from the hunk by removing the head and tail context.
+    ///
+    /// # Returns
+    /// The patch conflict code string with head and tail context removed.
+    pub fn get_patch_conflict(&self) -> &[String] {
+        let head = self.get_head_context(None).len();
+        let tail = self.get_tail_context(None).len();
+
+        assert!(self.body.len() >= head + tail);
+        &self.body[head..self.body.len() - tail]
+    }
+
+    pub fn get_conflict_base(&self) -> Result<Vec<String>> {
+        self.__get_conflict(true)
+    }
+
+    pub fn get_conflict_remote(&self) -> Result<Vec<String>> {
+        self.__get_conflict(false)
+    }
+
+    /// # Arguments
+    /// * `base` - If true, extract base lines
+    ///   If false, extract remote lines
+    ///
+    /// # Returns
+    /// The conflict code string with head and tail context removed.
+    fn __get_conflict(&self, base: bool) -> Result<Vec<String>> {
+        let (selector_char, skip_char) = if base { ('-', '+') } else { ('+', '-') };
+        let mut result = Vec::new();
+        for line in self.get_patch_conflict() {
+            if let Some(stripped) = line.strip_prefix(' ') {
+                result.push(stripped.to_string());
+            } else if let Some(stripped) = line.strip_prefix(selector_char) {
+                result.push(stripped.to_string());
+            } else if !line.starts_with(skip_char) {
+                return Err(anyhow::anyhow!(
+                    "Invalid hunk body line: '{}'. All body lines must start with ' ', '-', or '+'.",
+                    line
+                ));
+            }
+        }
+        Ok(result)
+    }
+
+    /// Splits the hunk body into multiple strings, each containing at
+    /// least `patch_context_lines` context lines before and after the
+    /// changed lines (+ or -).
+    ///
+    /// The split occurs only between changes, not at the very start
+    /// or end of the hunk body. Each resulting string will start
+    /// with up to `patch_context_lines` context lines and end with up
+    /// to `patch_context_lines` context lines surrounding the
+    /// changes.
+    pub fn split(
+        &self,
+        patch_context_lines: usize,
+        hard_patch_context_lines: usize,
+    ) -> Result<Vec<Hunk>> {
+        let mut hunks: Vec<Hunk> = Vec::new();
+        let mut current_body: Vec<String> = Vec::new();
+        let mut pending_context: Vec<&str> = Vec::new();
+        let mut seen_first_change = false;
+
+        // Track line counts for the current chunk
+        let mut base_count = 0;
+        let mut remote_count = 0;
+
+        // Track how much of the original hunk has been skipped (not
+        // included in current snippet)
+        let mut skipped_base = 0;
+        let mut skipped_remote = 0;
+
+        for line in &self.body {
+            if !seen_first_change {
+                // Accumulate lines until we hit the first change
+                current_body.push(line.clone());
+                if line.starts_with(' ') {
+                    base_count += 1;
+                    remote_count += 1;
+                } else if line.starts_with('-') {
+                    base_count += 1;
+                } else if line.starts_with('+') {
+                    remote_count += 1;
+                }
+
+                if line.starts_with('+') || line.starts_with('-') {
+                    seen_first_change = true;
+                    pending_context.clear();
+                }
+                continue;
+            }
+
+            if line.starts_with(' ') {
+                // Accumulate whitespace lines in a separate vector
+                pending_context.push(line);
+            } else {
+                // Hit a non-whitespace line (another change)
+                // If we accumulated at least patch_context_lines
+                // whitespace context lines,
+                // finalize the current snippet and start a new one.
+                if pending_context.len() >= patch_context_lines {
+                    if pending_context.len() > hard_patch_context_lines * 2 {
+                        return Err(anyhow::anyhow!(
+                            "Unexpected number of pending context lines ({}) for patch_context_lines ({})",
+                            pending_context.len(),
+                            patch_context_lines
+                        ));
+                    }
+
+                    let patch_context_lines = if !Self::KEEP_ALL_CONTEXT {
+                        hard_patch_context_lines
+                            .min(pending_context.len())
+                            .max(patch_context_lines)
+                    } else {
+                        pending_context.len()
+                    };
+
+                    // Append the first patch_context_lines of context
+                    // to the current snippet
+                    current_body.extend_from_slice(
+                        &pending_context[..patch_context_lines]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect::<Vec<String>>(),
+                    );
+
+                    // Update counts for the appended context lines
+                    base_count += patch_context_lines;
+                    remote_count += patch_context_lines;
+
+                    // Finalize current hunk
+                    if !current_body.is_empty() {
+                        hunks.push(Hunk {
+                            header: self.header.clone(),
+                            body: current_body.clone(),
+                            base_start: self.base_start + skipped_base,
+                            base_len: base_count,
+                            remote_start: self.remote_start + skipped_remote,
+                            remote_len: remote_count,
+                        });
+                    }
+
+                    let start_idx = pending_context.len() - patch_context_lines;
+
+                    // Calculate how many lines we advanced in the base and remote
+                    skipped_base += base_count + start_idx - patch_context_lines;
+                    skipped_remote += remote_count + start_idx - patch_context_lines;
+
+                    // Start new snippet with the last patch_context_lines of context
+                    current_body.clear();
+                    current_body.extend_from_slice(
+                        &pending_context[start_idx..]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect::<Vec<String>>(),
+                    );
+
+                    // Reset counts for new snippet
+                    base_count = patch_context_lines;
+                    remote_count = patch_context_lines;
+                } else {
+                    current_body.extend(pending_context.iter().map(|s| s.to_string()));
+                    base_count += pending_context.len();
+                    remote_count += pending_context.len();
+                }
+
+                // Reset pending context
+                pending_context.clear();
+
+                // Process the current change line
+                current_body.push(line.clone());
+                if line.starts_with('-') {
+                    base_count += 1;
+                } else if line.starts_with('+') {
+                    remote_count += 1;
+                }
+            }
+        }
+
+        // Add any remaining pending context to the current snippet
+        current_body.extend_from_slice(
+            &pending_context
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>(),
+        );
+
+        // Update counts for remaining context
+        for line in &pending_context {
+            if !line.starts_with(' ') {
+                return Err(anyhow::anyhow!(
+                    "Invalid pending context line: '{}'. All context lines must start with a space.",
+                    line
+                ));
+            }
+            base_count += 1;
+            remote_count += 1;
+        }
+
+        // Add the final hunk
+        if !current_body.is_empty() {
+            hunks.push(Hunk {
+                header: self.header.clone(),
+                body: current_body,
+                base_start: self.base_start + skipped_base,
+                base_len: base_count,
+                remote_start: self.remote_start + skipped_remote,
+                remote_len: remote_count,
+            });
+        }
+
+        Ok(hunks)
+    }
+
+    /// Extracts the "base" code snippet from a single hunk for patch_locator
+    /// Returns a string being the concatenation of base_lines for the hunk
+    /// Base lines are: lines with a leading whitespace (context) or leading '-' (removed)
+    /// The leading whitespace and '-' are stripped from the lines.
+    pub fn extract_base_snippet(&self) -> Result<String> {
+        self.__extract_snippet(true, false)
+    }
+
+    /// Extracts the "remote" code snippet from a single hunk for patch_locator
+    /// Returns a string being the concatenation of remote_lines for the hunk
+    /// Remote lines are: lines with a leading whitespace (context) or leading '+' (added)
+    /// The leading whitespace and '+' are stripped from the lines.
+    pub fn extract_remote_snippet(&self) -> Result<String> {
+        self.__extract_snippet(false, false)
+    }
+
+    /// Extracts all code lines from a single hunk for patch_locator
+    /// Returns a string being the concatenation of all lines
+    /// The leading whitespace, '+' or '-' are stripped from the lines.
+    #[cfg(false)]
+    pub fn extract_base_remote_snippet(&self) -> Result<String> {
+        self.__extract_snippet(false, true)
+    }
+
+    /// Extracts a code snippet from a single hunk for patch_locator
+    ///
+    /// # Arguments
+    /// * `remote` - If true, extract remote lines (context and added lines).
+    ///   If false, extract base lines (context and removed lines).
+    /// * `all` - If true, extract all lines (context, added, and removed).
+    fn __extract_snippet(&self, base: bool, all: bool) -> Result<String> {
+        let (selector_char, skip_char) = if base { ('-', '+') } else { ('+', '-') };
+        let mut lines = Vec::new();
+        let mut pending_whitespace: Vec<String> = Vec::new();
+
+        for line in &self.body {
+            if let Some(stripped) = line.strip_prefix(' ') {
+                lines.push(stripped.to_string());
+            } else if let Some(stripped) = line.strip_prefix(selector_char) {
+                lines.append(&mut pending_whitespace);
+                lines.push(stripped.to_string());
+            } else if all {
+                if let Some(stripped) = line.strip_prefix(skip_char) {
+                    lines.append(&mut pending_whitespace);
+                    lines.push(stripped.to_string());
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Invalid hunk body line: '{}'. All body lines must start with ' ', '-', or '+'.",
+                        line
+                    ));
+                }
+            } else if line.starts_with(skip_char) {
+                lines.append(&mut pending_whitespace);
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Invalid hunk body line: '{}'. All body lines must start with ' ', '-', or '+'.",
+                    line
+                ));
+            }
+        }
+        Ok(lines.join(""))
+    }
+}
+
+/// Data required for patch locator processing
+pub struct PatchLocatorData {
+    pub local_content: Arc<String>,
+    pub merged_local_content: Arc<String>,
+    pub merged_local_lines: Arc<Vec<String>>,
+    pub clean_diff: Arc<String>,
+    pub conflict_diff: Arc<String>,
+    pub lmdb_cache: Option<Arc<LmdbCacheImpl>>,
+    pub context_lines: Arc<ContextLines>,
+    pub max_context_size: u32,
+}
+
+pub struct PatchLocator {
+    header_regex: Regex,
+}
+
+impl PatchLocator {
+    const MAX_RELOCATION_DISTANCE: f64 = 0.2;
+    const MAX_BODY_LEN: usize = 1000;
+    const MAX_CONTEXT: usize = 40;
+    const MAX_SCAN: usize = 500;
+    const DIFF3_CONTEXT_LINES: usize = 3;
+    const EXTEND_CONFLICT_ON_CLEAN_MERGE: bool = true;
+
+    pub fn new() -> Self {
+        PatchLocator {
+            header_regex: Regex::new(r"^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@").unwrap(),
+        }
+    }
+
+    /// Parses git diff output into a list of Hunk structures
+    pub fn diff_to_hunks(&self, diff_output: &str) -> Result<Vec<Hunk>> {
+        let mut hunks = Vec::new();
+        let mut header = String::new();
+        let mut body_lines: Vec<String> = Vec::new();
+        let mut in_hunk = false;
+        let mut base_start: usize = 0;
+        let mut remote_start: usize = 0;
+        let mut base_count: usize = 0;
+        let mut remote_count: usize = 0;
+
+        let finalize_hunk = |header: String,
+                             body: Vec<String>,
+                             base_start: usize,
+                             base_count: usize,
+                             remote_start: usize,
+                             remote_count: usize|
+         -> Result<Hunk> {
+            // Validate that all body lines start with a space, - or +
+            for body_line in &body {
+                if !body_line.starts_with(' ')
+                    && !body_line.starts_with('-')
+                    && !body_line.starts_with('+')
+                {
+                    return Err(anyhow::anyhow!(
+                        "Invalid hunk body line: '{}'. All body lines must be prefixed with a space, - or +.",
+                        body_line
+                    ));
+                }
+            }
+            Ok(Hunk {
+                header,
+                body,
+                base_start,
+                base_len: base_count,
+                remote_start,
+                remote_len: remote_count,
+            })
+        };
+
+        for line in diff_output.split_inclusive('\n') {
+            if line.starts_with("@@") {
+                // Save previous hunk if exists
+                if in_hunk {
+                    hunks.push(finalize_hunk(
+                        header.clone(),
+                        body_lines.clone(),
+                        base_start,
+                        base_count,
+                        remote_start,
+                        remote_count,
+                    )?);
+                    body_lines.clear();
+                }
+
+                // Validate new header and extract fields
+                let caps = self
+                    .header_regex
+                    .captures(line)
+                    .ok_or_else(|| anyhow::anyhow!("Invalid hunk header: '{}'", line.trim()))?;
+                base_start = caps[1].parse()?;
+                base_count = match caps.get(2) {
+                    Some(m) => m.as_str().strip_prefix(',').unwrap_or(m.as_str()).parse()?,
+                    None => 0,
+                };
+                remote_start = caps[3].parse()?;
+                remote_count = match caps.get(4) {
+                    Some(m) => m.as_str().strip_prefix(',').unwrap_or(m.as_str()).parse()?,
+                    None => 0,
+                };
+
+                // Capture the header text after the @@ ... @@
+                // pattern, preserving the newline
+                let header_start = caps.get(0).unwrap().end();
+                header = line[header_start..].to_string();
+                in_hunk = true;
+            } else if in_hunk && !line.starts_with(r"\ No newline at end of file") {
+                body_lines.push(line.to_string());
+            }
+        }
+
+        // Save last hunk
+        if in_hunk {
+            hunks.push(finalize_hunk(
+                header.clone(),
+                body_lines.clone(),
+                base_start,
+                base_count,
+                remote_start,
+                remote_count,
+            )?);
+        }
+
+        Ok(hunks)
+    }
+
+    fn fast_search(snippet: &[u8], local_bytes: &[u8]) -> Option<usize> {
+        if snippet.len() > local_bytes.len() {
+            return None;
+        }
+
+        let mut matches = 0;
+        let mut first_start = 0;
+
+        for start in memchr::memmem::find_iter(local_bytes, snippet) {
+            if start > 0 && local_bytes[start - 1] != b'\n' {
+                continue;
+            }
+            matches += 1;
+            if matches == 1 {
+                first_start = start;
+            } else {
+                // Multiple matches found
+                return None;
+            }
+        }
+
+        if matches == 1 {
+            Some(first_start)
+        } else {
+            None
+        }
+    }
+
+    fn is_conflict(
+        &self,
+        hunk: &Hunk,
+        minus_lines: &[String],
+        minus_lines_hasher: &Sha256,
+        lmdb_cache: Option<&LmdbCacheImpl>,
+    ) -> Result<bool> {
+        let mut hasher = minus_lines_hasher.clone();
+        hasher.update(Self::MAX_RELOCATION_DISTANCE.to_string());
+        let patch = hunk.body.join("");
+        hasher.update(patch.len().to_string());
+        hasher.update(patch);
+        let hash = hasher.finalize();
+        let hash = format!("{:x}", hash);
+
+        if let Some(cache) = lmdb_cache
+            && let Some(success) = cache.get_cached_minus_lines(&hash)
+        {
+            return Ok(success);
+        }
+
+        let total_iterations = minus_lines.len();
+        let success = if total_iterations > 0 {
+            let num_threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+                .min(total_iterations)
+                .max(1);
+            let chunk_size = total_iterations.div_ceil(num_threads);
+            let found = AtomicBool::new(false);
+
+            std::thread::scope(|s| {
+                let mut handles = Vec::with_capacity(num_threads);
+                for chunk_idx in 0..num_threads {
+                    let start_idx = chunk_idx * chunk_size;
+                    if start_idx >= total_iterations {
+                        break;
+                    }
+                    let end_idx = (start_idx + chunk_size).min(total_iterations);
+                    let found_ref = &found;
+
+                    let handle = s.spawn(move || {
+                        minus_lines[start_idx..end_idx].iter().any(|minus_line| {
+                            if found_ref.load(Relaxed) {
+                                return true;
+                            }
+                            hunk.body.iter().any(|x| {
+                                if let Some(stripped) = x.strip_prefix('+') {
+                                    let stripped = stripped.trim();
+                                    if stripped.is_empty() {
+                                        return false;
+                                    }
+                                    let distance = nstr::levenshtein(stripped, minus_line);
+                                    if distance <= Self::MAX_RELOCATION_DISTANCE {
+                                        found_ref.store(true, Relaxed);
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            })
+                        })
+                    });
+                    handles.push(handle);
+                }
+
+                handles.into_iter().any(|handle| handle.join().unwrap())
+            })
+        } else {
+            false
+        };
+
+        if let Some(cache) = lmdb_cache {
+            cache.cache_minus_lines(&hash, success)?;
+        }
+
+        Ok(success)
+    }
+
+    fn ranges_overlap(
+        start1: usize,
+        end1: usize,
+        start2: usize,
+        end2: usize,
+        allow_adjacent: bool,
+    ) -> bool {
+        (start1 < end2 && start2 < end1)
+            || start1 == start2
+            || end1 == end2
+            || (!allow_adjacent && start1 <= end2 && start2 <= end1)
+    }
+
+    fn log_conflict_hunk(msg: &str, conflict: &Conflict, hunk: &Hunk) {
+        if log::log_enabled!(log::Level::Debug) {
+            let (hunk_base_start, hunk_base_end, hunk_remote_start, hunk_remote_end) =
+                hunk.get_ranges();
+            log::debug!(
+                "{}: {:?}, local=[{},{}), base=[{},{}), remote=[{},{}), new_local=[{},{}), hunk: base=[{},{}), remote=[{},{})",
+                msg,
+                conflict.commit_type,
+                conflict.local_start,
+                conflict.local_end,
+                conflict.base_start,
+                conflict.base_end,
+                conflict.remote_start,
+                conflict.remote_end,
+                conflict.new_local_start,
+                conflict.new_local_end,
+                hunk_base_start,
+                hunk_base_end,
+                hunk_remote_start,
+                hunk_remote_end
+            );
+        }
+    }
+
+    fn process_clean_hunk_single(
+        &self,
+        conflicts: &mut Vec<Conflict>,
+        hunk: &Hunk,
+        minus_lines: &[String],
+        minus_lines_hasher: &Sha256,
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        if hunk.body.len() > Self::MAX_BODY_LEN {
+            return Ok(());
+        }
+
+        let base = hunk.extract_base_snippet()?;
+        if base.is_empty() {
+            return Ok(());
+        }
+        let remote = hunk.extract_remote_snippet()?;
+        if remote.is_empty() {
+            return Ok(());
+        }
+
+        let mut commit_type = CommitType::Clean;
+        if !self.is_conflict(
+            hunk,
+            minus_lines,
+            minus_lines_hasher,
+            data.lmdb_cache.as_deref(),
+        )? {
+            commit_type = CommitType::CleanDisabled;
+        }
+
+        let local = &data.local_content;
+        let local_b = local.as_bytes();
+        let merged_local = &data.merged_local_content;
+        let merged_local_b = merged_local.as_bytes();
+
+        if let Some(start) = Self::fast_search(remote.as_bytes(), merged_local_b)
+            && let Some(_) = Self::fast_search(base.as_bytes(), local_b)
+        {
+            let local_start =
+                bytes_to_lines(merged_local_b, start) + hunk.get_head_context(None).len();
+            let local_end = local_start + hunk.get_conflict_remote()?.len();
+
+            let extra_conflict_lines = data.context_lines.extra_conflict_lines as usize;
+            let new_local_start = local_start.saturating_sub(extra_conflict_lines);
+            let new_local_end = local_end
+                .saturating_add(extra_conflict_lines)
+                .min(data.merged_local_lines.len());
+
+            let conflict_code = hunk.get_conflict_base()?.join("");
+
+            let hunks = vec![hunk.clone()];
+
+            let conflict = Conflict {
+                file_path: conflicts[0].file_path.clone(),
+                conflict_code,
+                local_start,
+                local_end,
+                new_local_start,
+                new_local_end,
+                commit_type,
+                hunks,
+                ..Default::default()
+            };
+
+            // Check if the new conflict overlaps with any existing conflict
+            // Also check for duplicate start or end positions to avoid
+            // infinite empty ranges adjacent to non-empty ones.
+            let overlaps = conflicts.iter().any(|existing_conflict| {
+                Self::ranges_overlap(
+                    conflict.local_start,
+                    conflict.local_end,
+                    existing_conflict.local_start,
+                    existing_conflict.local_end,
+                    true,
+                )
+            });
+
+            if overlaps {
+                log::warn!(
+                    "Skipping clean hunk conflict at lines {}-{} because it overlaps with an existing conflict",
+                    conflict.local_start,
+                    conflict.local_end
+                );
+            } else {
+                log::debug!("Clean: {hunk:?}");
+                Self::log_conflict_hunk("Clean hunk", &conflict, hunk);
+                conflicts.push(conflict);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn convert_clean_hunk_offsets(&self, hunk: &mut Hunk, conflicts: &[Conflict]) {
+        let ml_line = hunk.remote_start.saturating_sub(1);
+        let mut local_line = 0;
+        let mut base_line = ml_line;
+        let mut remote_line = ml_line;
+
+        for conflict in conflicts {
+            if conflict.commit_type != CommitType::Conflict {
+                continue;
+            }
+            if ml_line >= conflict.local_end {
+                let local_len = conflict.local_end - conflict.local_start;
+                let base_len = conflict.base_end - conflict.base_start;
+                let remote_len = conflict.remote_end - conflict.remote_start;
+
+                local_line += local_len;
+                base_line += base_len;
+                remote_line += remote_len;
+            } else {
+                break;
+            }
+        }
+
+        hunk.base_start = base_line - local_line + 1;
+        hunk.remote_start = remote_line - local_line + 1;
+    }
+
+    fn process_clean_hunks(
+        &self,
+        conflicts: &mut Vec<Conflict>,
+        hunks: Vec<Hunk>,
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        conflicts.sort_by_key(|c| c.local_start);
+
+        // Build local snippets
+        let mut minus_lines_hasher = Sha256::new();
+        let minus_lines = self.create_minus_lines(conflicts, &mut minus_lines_hasher);
+
+        // Split hunks into smaller snippets and flatten them
+        let patch_context_lines = data.context_lines.patch_context_lines as usize;
+        let mut splitted_hunks: Vec<Hunk> = Vec::with_capacity(hunks.len());
+        for h in hunks {
+            splitted_hunks.extend(h.split(1, patch_context_lines)?);
+        }
+
+        for mut hunk in splitted_hunks {
+            self.convert_clean_hunk_offsets(&mut hunk, conflicts);
+            self.process_clean_hunk_single(
+                conflicts,
+                &hunk,
+                &minus_lines,
+                &minus_lines_hasher,
+                data,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn match_conflicting_hunk_single(&self, conflicts: &mut [Conflict], hunk: &Hunk) -> Result<()> {
+        log::debug!("Conflict: {hunk:?}");
+        let (hunk_base_start, hunk_base_end, hunk_remote_start, hunk_remote_end) =
+            hunk.get_ranges();
+
+        let mut matched = false;
+        for conflict in conflicts.iter_mut() {
+            // Check base range overlap: [conflict.base_start,
+            // conflict.base_end) vs [hunk_base_start, hunk_base_end)
+            let base_overlaps = Self::ranges_overlap(
+                conflict.base_start,
+                conflict.base_end,
+                hunk_base_start,
+                hunk_base_end,
+                true,
+            );
+
+            Self::log_conflict_hunk("Conflict candidate", conflict, hunk);
+
+            // Check remote range overlap: [conflict.remote_start,
+            // conflict.remote_end) vs [hunk_remote_start,
+            // hunk_remote_end)
+            let remote_overlaps = Self::ranges_overlap(
+                conflict.remote_start,
+                conflict.remote_end,
+                hunk_remote_start,
+                hunk_remote_end,
+                true,
+            );
+
+            if !base_overlaps && !remote_overlaps {
+                continue;
+            }
+
+            Self::log_conflict_hunk("Conflict match", conflict, hunk);
+
+            // Add the hunk to the conflict's hunks
+            conflict.hunks.push(hunk.clone());
+            matched = true;
+        }
+
+        if !matched {
+            anyhow::bail!(
+                "Hunk not matched to any conflict in file '{}', hunk: base=[{},{}), remote=[{},{})",
+                conflicts[0].file_path,
+                hunk_base_start,
+                hunk_base_end,
+                hunk_remote_start,
+                hunk_remote_end
+            );
+        }
+
+        Ok(())
+    }
+
+    fn match_conflicting_hunks(
+        &self,
+        conflicts: &mut [Conflict],
+        hunks: Vec<Hunk>,
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        // Split hunks into smaller snippets and flatten them
+        let patch_context_lines = data.context_lines.patch_context_lines as usize;
+        let mut splitted_conflicts_hunks: Vec<Hunk> = Vec::with_capacity(hunks.len());
+        for h in hunks {
+            splitted_conflicts_hunks.extend(h.split(1, patch_context_lines)?);
+        }
+
+        for hunk in &splitted_conflicts_hunks {
+            self.match_conflicting_hunk_single(conflicts, hunk)?;
+        }
+
+        Ok(())
+    }
+
+    fn merge_conflicts(
+        &self,
+        conflicts: &mut Vec<Conflict>,
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        conflicts.sort_by_key(|c| c.local_start);
+
+        loop {
+            let mut merged: Vec<Conflict> = Vec::with_capacity(conflicts.len());
+
+            // Start with the first conflict
+            let mut current = &mut conflicts.remove(0);
+
+            let mut repeat = false;
+            for next in &mut *conflicts {
+                let mut same_hunk = false;
+                for hunk in &next.hunks {
+                    if current.hunks.contains(hunk) {
+                        same_hunk = true;
+                        break;
+                    }
+                }
+
+                if same_hunk || current.new_local_end >= next.new_local_start {
+                    repeat = true;
+                    log::debug!(
+                        "Merging {:?} [{},{}) - {:?} [{},{}), same_hunk: {same_hunk}",
+                        current.commit_type,
+                        current.new_local_start,
+                        current.new_local_end,
+                        next.commit_type,
+                        next.new_local_start,
+                        next.new_local_end,
+                    );
+
+                    if current.local_end > next.local_start {
+                        anyhow::bail!(
+                            "Invalid conflict merge: current local_end ({}) > next local_start ({}) in {}",
+                            current.local_end,
+                            next.local_start,
+                            current.file_path
+                        );
+                    }
+
+                    if current.commit_type.is_clean() && next.commit_type.is_clean() {
+                        let gap = current.local_end..next.local_start;
+                        for i in gap {
+                            current.conflict_code.push_str(&data.merged_local_lines[i]);
+                        }
+                        current.conflict_code.push_str(&next.conflict_code);
+                        current.local_end = next.local_end;
+                    } else if current.commit_type.is_clean() && next.commit_type.is_conflict() {
+                        current.conflict_code = next.conflict_code.clone();
+                        current.conflict_raw_patch =
+                            Some(next.conflict_raw_patch.as_ref().unwrap().clone());
+                        current.local_start = next.local_start;
+                        current.local_end = next.local_end;
+
+                        if !Self::EXTEND_CONFLICT_ON_CLEAN_MERGE {
+                            current.new_local_start = next.new_local_start;
+                            current.new_local_end = next.new_local_end;
+                        }
+
+                        current.hunks.clear();
+                    } else if current.commit_type.is_conflict() && next.commit_type.is_clean() {
+                        if !Self::EXTEND_CONFLICT_ON_CLEAN_MERGE {
+                            next.new_local_start = current.new_local_start;
+                            next.new_local_end = current.new_local_end;
+                        }
+
+                        next.hunks.clear();
+                    } else {
+                        assert!(
+                            current.commit_type.is_conflict() && next.commit_type.is_conflict()
+                        );
+                        current
+                            .conflict_raw_patch
+                            .as_mut()
+                            .unwrap()
+                            .push_str(next.conflict_raw_patch.as_ref().unwrap());
+                    }
+
+                    // Merge hunks from next into current
+                    for hunk in &next.hunks {
+                        if !current.hunks.contains(hunk) {
+                            current.hunks.push(hunk.clone());
+                        }
+                    }
+
+                    current.new_local_start = next.new_local_start.min(current.new_local_start);
+                    current.new_local_end = next.new_local_end.max(current.new_local_end);
+                    current.commit_type = (current.commit_type + next.commit_type)?;
+
+                    log::debug!(
+                        "Merged [{},{}) {:?}",
+                        current.new_local_start,
+                        current.new_local_end,
+                        current.commit_type,
+                    );
+                } else {
+                    // No overlap, finalize current and start new
+                    merged.push(current.clone());
+                    current = next;
+                }
+            }
+
+            // Push the last conflict
+            merged.push(current.clone());
+
+            *conflicts = merged;
+
+            if !repeat {
+                break;
+            }
+        }
+        conflicts.retain(|c| c.commit_type != CommitType::CleanDisabled);
+
+        Ok(())
+    }
+
+    fn relocate_conflicts(
+        &self,
+        conflicts: &mut [Conflict],
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        let extra_conflict_lines = data.context_lines.extra_conflict_lines as usize;
+        let code_context_lines = data.context_lines.code_context_lines as usize;
+
+        let conflicts_tmp = conflicts.to_vec();
+        for (i, conflict) in conflicts.iter_mut().enumerate() {
+            // Only Conflicts can be fully relocated
+            // Clean commit types can only be extended
+            assert!(conflict.commit_type == CommitType::Conflict);
+            assert!(conflict.local_end >= conflict.local_start);
+
+            let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
+            let head_context = hunks
+                .first()
+                .unwrap()
+                .get_head_context(Some(Self::MAX_CONTEXT));
+            let tail_context = hunks
+                .last()
+                .unwrap()
+                .get_tail_context(Some(Self::MAX_CONTEXT));
+            // println!("head\n{}", head_context.join(""));
+            // println!("tail\n{}", tail_context.join(""));
+            let head = head_context.len();
+            let tail = tail_context.len();
+            let prev_new_local_end = if i > 0 {
+                conflicts_tmp[i - 1].local_end
+            } else {
+                0
+            };
+            let head_margin = (conflict.local_start - prev_new_local_end).saturating_sub(1);
+            let next_new_local_start = if i + 1 < conflicts_tmp.len() {
+                conflicts_tmp[i + 1].local_start
+            } else {
+                data.merged_local_lines.len()
+            };
+            let tail_margin = (next_new_local_start - conflict.local_end).saturating_sub(1);
+            let prev_new_local_end = prev_new_local_end
+                .saturating_sub(head)
+                .max(conflict.local_start.saturating_sub(Self::MAX_SCAN));
+            let next_new_local_start = next_new_local_start
+                .saturating_add(tail)
+                .min(conflict.local_end.saturating_add(Self::MAX_SCAN))
+                .min(data.merged_local_lines.len());
+            let scan_range = next_new_local_start - prev_new_local_end;
+            let head_scan_range = conflict.local_start - prev_new_local_end;
+            let tail_scan_range = next_new_local_start - conflict.local_end;
+
+            let orig_local_start = conflict.local_start;
+            let orig_local_end = conflict.local_end;
+            let (extra_head, extra_tail) = if head >= Self::DIFF3_CONTEXT_LINES
+                || tail >= Self::DIFF3_CONTEXT_LINES
+            {
+                if head >= Self::DIFF3_CONTEXT_LINES
+                    && tail >= Self::DIFF3_CONTEXT_LINES
+                    && head_margin > 0
+                    && tail_margin > 0
+                    && scan_range > head
+                    && scan_range > tail
+                {
+                    self.relocate_both(
+                        conflict,
+                        (prev_new_local_end, next_new_local_start),
+                        &head_context,
+                        &tail_context,
+                        data,
+                    )?;
+                } else if head >= Self::DIFF3_CONTEXT_LINES
+                    && head_margin > 0
+                    && head_scan_range > head
+                {
+                    self.relocate_head(
+                        conflict,
+                        prev_new_local_end,
+                        conflict.local_start,
+                        &head_context,
+                        data,
+                    )?;
+                } else if tail >= Self::DIFF3_CONTEXT_LINES
+                    && tail_margin > 0
+                    && tail_scan_range > tail
+                {
+                    self.relocate_tail(
+                        conflict,
+                        conflict.local_end,
+                        next_new_local_start,
+                        &tail_context,
+                        data,
+                    )?;
+                }
+
+                if conflict.local_start != orig_local_start || conflict.local_end != orig_local_end
+                {
+                    log::debug!(
+                        "Relocated conflict in {} from [{}, {}) to [{}, {})",
+                        conflict.file_path,
+                        orig_local_start,
+                        orig_local_end,
+                        conflict.local_start,
+                        conflict.local_end
+                    );
+                }
+
+                let extra_head = code_context_lines.min(head_margin);
+                let extra_tail = code_context_lines.min(tail_margin);
+                (
+                    extra_conflict_lines + extra_head,
+                    extra_conflict_lines + extra_tail,
+                )
+            } else {
+                (extra_conflict_lines, extra_conflict_lines)
+            };
+
+            conflict.new_local_start = conflict.local_start.saturating_sub(extra_head);
+            conflict.new_local_end = conflict
+                .local_end
+                .saturating_add(extra_tail)
+                .min(data.merged_local_lines.len());
+        }
+        Ok(())
+    }
+
+    fn calc_max_context_distance(&self, conflict: &Conflict, context: &[String]) -> f64 {
+        let context_len = context.len();
+        assert!(context_len >= Self::DIFF3_CONTEXT_LINES);
+        let scaled = 0.25
+            + 0.5 * (context_len - Self::DIFF3_CONTEXT_LINES) as f64
+                / (Self::MAX_CONTEXT - Self::DIFF3_CONTEXT_LINES) as f64;
+        let max_distance = scaled.clamp(0.25, 0.75);
+        if conflict.local_start != conflict.local_end {
+            max_distance / 2.0
+        } else {
+            max_distance
+        }
+    }
+
+    fn calc_distances(
+        &self,
+        head_context: &[String],
+        range: std::ops::Range<usize>,
+        merged_local_lines: &[String],
+        (anchored, tail, max_context_distance): (bool, bool, f64),
+        data: &PatchLocatorData,
+    ) -> Result<Option<(Vec<f64>, usize)>> {
+        let cache = data.lmdb_cache.as_deref();
+        let merged_local_lines = if tail {
+            &merged_local_lines[range.clone()]
+                .iter()
+                .rev()
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            &merged_local_lines[range.clone()]
+        };
+        let head_context = if tail {
+            &head_context.iter().rev().cloned().collect::<Vec<_>>()
+        } else {
+            head_context
+        };
+        let head_context_str = &head_context.join("");
+
+        let mut cache_key = String::new();
+        if let Some(cache) = cache {
+            let merged_local_lines_str = &merged_local_lines.join("");
+            cache_key = cache.get_cache_key(&[
+                head_context_str.as_bytes(),
+                merged_local_lines_str.as_bytes(),
+                format!("{:?}", tail).as_bytes(),
+                format!("{:?}", anchored).as_bytes(),
+                format!("{:?}", max_context_distance).as_bytes(),
+            ]);
+            if let Some(cached) = cache.get_cached_response(&cache_key) {
+                let result: Option<(Vec<f64>, usize)> = serde_json::from_str(&cached)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse cached distance: {}", e))?;
+                return Ok(result);
+            }
+        }
+
+        let head_context_len = head_context.len();
+        let mut min_distance = f64::MAX;
+        let mut offset = usize::MAX;
+
+        let total_iterations = range.len().saturating_sub(head_context_len);
+        let mut distances = Vec::with_capacity(total_iterations);
+
+        if total_iterations > 0 {
+            let num_threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+                .min(total_iterations)
+                .max(1);
+            log::trace!("scaling levenshtein search over {} threads", num_threads);
+            let chunk_size = total_iterations.div_ceil(num_threads);
+
+            std::thread::scope(|s| {
+                let mut handles = Vec::with_capacity(num_threads);
+                for chunk_idx in 0..num_threads {
+                    let start_idx = chunk_idx * chunk_size;
+                    if start_idx >= total_iterations {
+                        break;
+                    }
+                    let end_idx = (start_idx + chunk_size).min(total_iterations);
+
+                    let handle = s.spawn(move || {
+                        let mut local_distances = Vec::with_capacity(end_idx - start_idx);
+                        let mut local_min_distance = f64::MAX;
+                        let mut local_offset = usize::MAX;
+
+                        for i in start_idx..end_idx {
+                            let end = if !anchored {
+                                i + head_context_len
+                            } else {
+                                merged_local_lines.len()
+                            };
+                            let candidate = &merged_local_lines[i..end];
+                            if !anchored {
+                                assert_eq!(candidate.len(), head_context_len);
+                            } else {
+                                assert!(candidate.len() >= head_context_len);
+                            }
+                            let candidate = candidate.join("");
+                            let distance = nstr::levenshtein(&candidate, head_context_str);
+                            if distance > max_context_distance {
+                                local_distances.push(f64::MAX);
+                                continue;
+                            }
+                            local_distances.push(distance);
+                            if distance < local_min_distance {
+                                local_offset = i;
+                                local_min_distance = distance;
+                                // println!(
+                                //     "{distance} {}\nyyyyyyyyyyyyy\n{}\nxxxxxxxxx\n{}",
+                                //     end - i,
+                                //     candidate,
+                                //     head_context_str
+                                // );
+                            }
+                        }
+                        (local_distances, local_min_distance, local_offset)
+                    });
+                    handles.push(handle);
+                }
+
+                for handle in handles {
+                    let (local_distances, local_min_distance, local_offset) =
+                        handle.join().unwrap();
+                    distances.extend(local_distances);
+                    if local_min_distance < min_distance {
+                        min_distance = local_min_distance;
+                        offset = local_offset;
+                    }
+                }
+            });
+        }
+
+        let result = if offset == usize::MAX {
+            None
+        } else {
+            let distances = if tail {
+                distances.iter().rev().cloned().collect::<Vec<_>>()
+            } else {
+                distances
+            };
+            assert_eq!(distances.len(), range.len() - head_context_len);
+            let offset = offset + head_context_len;
+            let offset = if tail { range.len() - offset } else { offset };
+
+            Some((distances, offset))
+        };
+
+        if let Some(cache) = cache {
+            let serialized = serde_json::to_string(&result)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize distance: {}", e))?;
+            cache.cache_response(&cache_key, serialized)?;
+        }
+
+        Ok(result)
+    }
+
+    fn update_conflict_code(
+        &self,
+        conflict: &mut Conflict,
+        start: usize,
+        end: usize,
+        merged_local_lines: &[String],
+    ) {
+        conflict.local_start = start;
+        conflict.local_end = end;
+        conflict.conflict_code = merged_local_lines[start..end].join("");
+    }
+
+    fn relocate_both(
+        &self,
+        conflict: &mut Conflict,
+        (prev_new_local_end, next_new_local_start): (usize, usize),
+        head_context: &[String],
+        tail_context: &[String],
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        let max_context_distance = self.calc_max_context_distance(conflict, head_context);
+        let Some((head_distances, offset)) = self.calc_distances(
+            head_context,
+            prev_new_local_end..next_new_local_start,
+            &data.merged_local_lines,
+            (false, false, max_context_distance),
+            data,
+        )?
+        else {
+            return Ok(());
+        };
+        let mut head_offset = offset + prev_new_local_end;
+        let max_context_distance = self.calc_max_context_distance(conflict, tail_context);
+        let Some((tail_distances, offset)) = self.calc_distances(
+            tail_context,
+            prev_new_local_end..next_new_local_start,
+            &data.merged_local_lines,
+            (false, true, max_context_distance),
+            data,
+        )?
+        else {
+            return Ok(());
+        };
+        let mut tail_offset = offset + prev_new_local_end;
+        let head_context_len = head_context.len();
+        if head_offset > tail_offset {
+            let mut min_sum = f64::MAX;
+            let mut best_head = 0;
+            let mut best_tail = 0;
+            for (i, &hd) in head_distances.iter().enumerate() {
+                for (j, &td) in tail_distances.iter().enumerate() {
+                    let head_idx = prev_new_local_end + head_context_len + i;
+                    let tail_idx = prev_new_local_end + j;
+                    if head_idx <= tail_idx {
+                        let sum = hd + td;
+                        if sum < min_sum {
+                            min_sum = sum;
+                            best_head = head_idx;
+                            best_tail = tail_idx;
+                        }
+                    }
+                }
+            }
+            if min_sum < f64::MAX {
+                head_offset = best_head;
+                tail_offset = best_tail;
+            }
+        }
+        if head_offset <= tail_offset {
+            self.update_conflict_code(conflict, head_offset, tail_offset, &data.merged_local_lines);
+        }
+        Ok(())
+    }
+
+    fn relocate_head(
+        &self,
+        conflict: &mut Conflict,
+        prev_new_local_end: usize,
+        next_new_local_start: usize,
+        context: &[String],
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        let max_context_distance = self.calc_max_context_distance(conflict, context);
+        let Some((_, offset)) = self.calc_distances(
+            context,
+            prev_new_local_end..next_new_local_start,
+            &data.merged_local_lines,
+            (true, false, max_context_distance),
+            data,
+        )?
+        else {
+            return Ok(());
+        };
+        let offset = prev_new_local_end + offset;
+        if offset < conflict.local_start {
+            self.update_conflict_code(
+                conflict,
+                offset,
+                conflict.local_end,
+                &data.merged_local_lines,
+            );
+        }
+        Ok(())
+    }
+
+    fn relocate_tail(
+        &self,
+        conflict: &mut Conflict,
+        prev_new_local_end: usize,
+        next_new_local_start: usize,
+        context: &[String],
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        let max_context_distance = self.calc_max_context_distance(conflict, context);
+        let Some((_, offset)) = self.calc_distances(
+            context,
+            prev_new_local_end..next_new_local_start,
+            &data.merged_local_lines,
+            (true, true, max_context_distance),
+            data,
+        )?
+        else {
+            return Ok(());
+        };
+        let offset = prev_new_local_end + offset;
+        if offset < conflict.local_start {
+            self.update_conflict_code(
+                conflict,
+                conflict.local_start,
+                offset,
+                &data.merged_local_lines,
+            );
+        }
+        Ok(())
+    }
+
+    fn regenerate_conflict(
+        &self,
+        conflict: &mut Conflict,
+        data: &PatchLocatorData,
+        prev_new_local_end: usize,
+        next_new_local_start: usize,
+    ) -> Result<()> {
+        let code_context_lines = data.context_lines.code_context_lines as usize;
+        let merged_local_lines = &data.merged_local_lines;
+
+        log::debug!(
+            "Regenerating conflict: {} {} {} {} {:?}",
+            conflict.new_local_start,
+            conflict.new_local_end,
+            conflict.local_start,
+            conflict.local_end,
+            conflict.commit_type
+        );
+
+        // Recalculate head context
+        let head_end = conflict.new_local_start;
+        let head_start = head_end
+            .saturating_sub(code_context_lines)
+            .max(prev_new_local_end);
+        conflict.head_context = merged_local_lines[head_start..head_end].join("");
+        conflict.nr_head_context_lines = head_end - head_start;
+
+        // Recalculate tail context
+        let tail_start = conflict.new_local_end;
+        let tail_end = tail_start
+            .saturating_add(code_context_lines)
+            .min(next_new_local_start);
+        conflict.tail_context = merged_local_lines[tail_start..tail_end].join("");
+        conflict.nr_tail_context_lines = tail_end - tail_start;
+
+        conflict.conflict_code = format!(
+            "{}{}{}",
+            merged_local_lines[head_end..conflict.local_start].join(""),
+            conflict.conflict_code,
+            merged_local_lines[conflict.local_end..tail_start].join("")
+        );
+
+        conflict.local_start = conflict.new_local_start;
+        conflict.local_end = conflict.new_local_end;
+
+        self.generate_conflict_patch(conflict)?;
+
+        log::debug!(
+            "Regenerated conflict: {} {}",
+            conflict.local_start,
+            conflict.local_end,
+        );
+
+        conflict.new_local_start = usize::MAX;
+        conflict.new_local_end = usize::MAX - 1;
+        conflict.base_start = usize::MAX;
+        conflict.base_end = usize::MAX - 1;
+        conflict.remote_start = usize::MAX;
+        conflict.remote_end = usize::MAX - 1;
+        conflict.nr_conflict_lines = usize::MAX;
+        conflict.marker_size = usize::MAX;
+
+        Ok(())
+    }
+
+    pub fn patch_locator(
+        &self,
+        conflicts: &mut Vec<Conflict>,
+        data: &PatchLocatorData,
+    ) -> Result<()> {
+        assert!(!conflicts.is_empty());
+        let hunks = self.diff_to_hunks(&data.conflict_diff)?;
+        if hunks.is_empty() {
+            anyhow::bail!("conflict_diff contains no hunks");
+        }
+        self.match_conflicting_hunks(conflicts, hunks, data)?;
+        self.relocate_conflicts(conflicts, data)?;
+
+        let hunks = self.diff_to_hunks(&data.clean_diff)?;
+        if !hunks.is_empty() {
+            self.process_clean_hunks(conflicts, hunks, data)?;
+        }
+
+        let code_snippets = Arc::new(self.create_code_snippets(conflicts, data));
+
+        self.merge_conflicts(conflicts, data)?;
+
+        let mut prev_new_local_end = 0;
+        for i in 0..conflicts.len() {
+            let next_new_local_start = if i + 1 < conflicts.len() {
+                conflicts[i + 1].new_local_start
+            } else {
+                data.merged_local_lines.len()
+            };
+            let conflict = &mut conflicts[i];
+            if conflict.commit_type == CommitType::CleanDisabled {
+                anyhow::bail!("Unexpected CleanDisabled conflicts after merge");
+            }
+            conflict.code_snippets = code_snippets.clone();
+            let next_prev_new_local_end = conflict.new_local_end;
+            self.regenerate_conflict(conflict, data, prev_new_local_end, next_new_local_start)?;
+            prev_new_local_end = next_prev_new_local_end;
+        }
+
+        self.validate_conflicts(conflicts, data.merged_local_lines.len())?;
+
+        Ok(())
+    }
+
+    fn validate_conflicts(&self, conflicts: &[Conflict], total_lines: usize) -> Result<()> {
+        for (i, conflict) in conflicts.iter().enumerate() {
+            if conflict.local_start > conflict.local_end {
+                anyhow::bail!(
+                    "Conflict invalid bounds in {}: local_start {} > local_end {}",
+                    conflict.file_path,
+                    conflict.local_start,
+                    conflict.local_end
+                );
+            }
+
+            // Check for underflow/overflow against total_lines
+            if conflict.local_end > total_lines {
+                anyhow::bail!(
+                    "Conflict underflow/overflow in {}: local_end {} > total_lines {}",
+                    conflict.file_path,
+                    conflict.local_end,
+                    total_lines
+                );
+            }
+
+            // Check head context bounds
+            if conflict.nr_head_context_lines > conflict.local_start {
+                anyhow::bail!(
+                    "Conflict head context overflow in {}: nr_head_context_lines {} > local_start {}",
+                    conflict.file_path,
+                    conflict.nr_head_context_lines,
+                    conflict.local_start
+                );
+            }
+
+            // Check tail context bounds
+            if conflict.nr_tail_context_lines > (total_lines - conflict.local_end) {
+                anyhow::bail!(
+                    "Conflict tail context overflow in {}: nr_tail_context_lines {} > (total_lines - local_end) {}",
+                    conflict.file_path,
+                    conflict.nr_tail_context_lines,
+                    total_lines - conflict.local_end
+                );
+            }
+
+            if conflict.nr_head_context_lines == 0 && conflict.local_start > 0 {
+                anyhow::bail!(
+                    "Conflict head context underflow in {}: nr_head_context_lines is 0 but local_start {} > 0",
+                    conflict.file_path,
+                    conflict.local_start
+                );
+            }
+            if conflict.nr_tail_context_lines == 0 && conflict.local_end < total_lines {
+                anyhow::bail!(
+                    "Conflict tail context underflow in {}: nr_tail_context_lines is 0 but local_end {} < total_lines {}",
+                    conflict.file_path,
+                    conflict.local_end,
+                    total_lines
+                );
+            }
+
+            // Check head context does not cross previous conflict's local_end
+            if i > 0 {
+                let prev = &conflicts[i - 1];
+                let head_start = conflict.local_start - conflict.nr_head_context_lines;
+                if head_start < prev.local_end {
+                    anyhow::bail!(
+                        "Conflict head context in {} crosses previous conflict at local_start {}, local_end {}, nr_head_context_lines {}",
+                        conflict.file_path,
+                        prev.local_end,
+                        conflict.local_start,
+                        conflict.nr_head_context_lines
+                    );
+                }
+
+                // If local_start == local_end, ensure previous conflict's local_start < local_start
+                if conflict.local_start == conflict.local_end
+                    && prev.local_start >= conflict.local_start
+                {
+                    anyhow::bail!(
+                        "Conflict local_start == local_end in {} but previous conflict local_start {} >= local_start {}",
+                        conflict.file_path,
+                        prev.local_start,
+                        conflict.local_start
+                    );
+                }
+            }
+
+            // Check tail context does not cross next conflict's local_start
+            if i + 1 < conflicts.len() {
+                let next = &conflicts[i + 1];
+                let tail_end = conflict.local_end + conflict.nr_tail_context_lines;
+                if tail_end > next.local_start {
+                    anyhow::bail!(
+                        "Conflict tail context in {} crosses next conflict at local_end {}, local_start {}, nr_tail_context_lines {}",
+                        conflict.file_path,
+                        conflict.local_end,
+                        next.local_start,
+                        conflict.nr_tail_context_lines
+                    );
+                }
+
+                // If local_start == local_end, ensure next conflict's local_end > local_start
+                if conflict.local_start == conflict.local_end
+                    && next.local_end <= conflict.local_start
+                {
+                    anyhow::bail!(
+                        "Conflict local_start == local_end in {} but next conflict local_end {} <= local_start {}",
+                        conflict.file_path,
+                        next.local_end,
+                        conflict.local_start
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn generate_conflict_patch(&self, conflict: &mut Conflict) -> Result<()> {
+        // Verify each conflict has at least one entry in conflict.hunks and join them
+        if conflict.hunks.is_empty() {
+            //return Ok(());
+            anyhow::bail!(
+                "Conflict has no hunks in {} base: [{},{}), remote: [{}-{})",
+                conflict.file_path,
+                conflict.base_start,
+                conflict.base_end,
+                conflict.remote_start,
+                conflict.remote_end
+            );
+        }
+        conflict.hunks.sort_by_key(|h| h.base_start);
+        conflict.hunks = Hunk::merge(conflict.hunks.clone());
+        conflict.conflict_patch = conflict
+            .hunks
+            .iter()
+            .map(|h| h.to_string())
+            .collect::<String>();
+        Ok(())
+    }
+
+    fn create_code_snippets(
+        &self,
+        conflicts: &mut [Conflict],
+        data: &PatchLocatorData,
+    ) -> Vec<Snippet> {
+        conflicts.sort_by_key(|c| c.local_start);
+
+        let cl = &data.context_lines;
+        let extra_lines = (cl.code_context_lines + cl.extra_conflict_lines) as usize;
+        let max_context_size = data.max_context_size as usize;
+        let mut snippets: Vec<Snippet> = Vec::new();
+        let mut last_end = 0;
+        for (i, conflict) in conflicts.iter().enumerate() {
+            if conflict.commit_type.is_clean() {
+                continue;
+            }
+
+            let prev_local_end = if i > 0 && conflicts[i - 1].commit_type.is_clean() {
+                conflicts[i - 1].local_end
+            } else {
+                0
+            };
+            let next_local_start =
+                if i + 1 < conflicts.len() && conflicts[i + 1].commit_type.is_clean() {
+                    conflicts[i + 1].local_start
+                } else {
+                    data.merged_local_lines.len()
+                };
+
+            let mut snippet = String::new();
+            let start = conflict.local_start;
+            let end = conflict.local_end;
+            assert!(start <= end);
+            if start == end {
+                continue;
+            }
+            let mut start = start.saturating_sub(extra_lines).max(prev_local_end);
+            let end = end.saturating_add(extra_lines).min(next_local_start);
+            if !snippets.is_empty() {
+                if last_end >= end {
+                    continue;
+                }
+                if start <= last_end {
+                    start = start.max(last_end);
+                    snippet = snippets.pop().unwrap().snippet;
+                }
+            }
+            last_end = end;
+
+            for line in &data.merged_local_lines[start..last_end] {
+                snippet.push_str(line);
+            }
+            snippets.push(Snippet {
+                snippet,
+                local_start: start,
+                local_end: last_end,
+            });
+        }
+
+        if snippets
+            .iter()
+            .map(|s| &s.snippet)
+            .cloned()
+            .collect::<String>()
+            .len()
+            > max_context_size
+        {
+            log::warn!(
+                "Code snippets exceed max context size ({} bytes), skipping",
+                max_context_size
+            );
+            snippets.clear();
+        }
+
+        snippets
+    }
+
+    fn create_minus_lines(&self, conflicts: &Vec<Conflict>, hasher: &mut Sha256) -> Vec<String> {
+        let mut minus = Vec::new();
+        for conflict in conflicts {
+            if conflict.commit_type != CommitType::Conflict {
+                continue;
+            }
+            let conflict_patch = &conflict.conflict_patch;
+            for line in conflict_patch.lines() {
+                if let Some(stripped) = line.strip_prefix('-') {
+                    let stripped = stripped.trim();
+                    if stripped.is_empty() {
+                        continue;
+                    }
+                    minus.push(stripped.to_string());
+                    hasher.update(stripped.len().to_string());
+                    hasher.update(stripped);
+                }
+            }
+        }
+        minus
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn verify_bytes_to_lines_and_lines_to_bytes(lines: Vec<&str>) {
+        // Create a byte array with various bytes but also adding some b'\n' bytes
+        let mut bytes = Vec::new();
+        for line in &lines {
+            bytes.extend_from_slice(line.as_bytes());
+        }
+
+        // Verify bytes_to_lines for every char
+        for (i, _) in bytes.iter().enumerate() {
+            let line_num = bytes_to_lines(&bytes, i);
+            println!("{i} -> {line_num}");
+            // The line number should be the count of newlines up to
+            // and including position i
+            let expected_line = bytes[..i].iter().filter(|&&b| b == b'\n').count();
+            assert_eq!(line_num, expected_line, "Failed at byte index {}", i);
+        }
+
+        // Verify lines_to_bytes for every line
+        for (i, line) in lines.iter().enumerate() {
+            let byte_offset = _lines_to_bytes(&bytes, i);
+            println!("{i} <- {byte_offset}");
+            // The byte offset should be the sum of lengths of all
+            // previous lines plus the newline
+            let expected_offset = lines[..i].iter().map(|l| l.len()).sum::<usize>();
+            assert_eq!(byte_offset, expected_offset, "Failed for line {}", i);
+
+            // Verify that the line at this offset matches
+            let line_bytes = line.as_bytes();
+            if byte_offset + line_bytes.len() <= bytes.len() {
+                assert_eq!(
+                    &bytes[byte_offset..byte_offset + line_bytes.len()],
+                    line_bytes,
+                    "Failed for line {}",
+                    i
+                );
+            }
+        }
+
+        // Test with a value beyond the end of the lines
+        let beyond_lines = lines.len();
+        let offset_beyond_lines = _lines_to_bytes(&bytes, beyond_lines);
+        // Should return the last byte offset (end of bytes)
+        assert_eq!(
+            offset_beyond_lines,
+            bytes.len(),
+            "Beyond lines should return end of bytes"
+        );
+
+        // Test with a value beyond the end of the bytes
+        let beyond_bytes = bytes.len() + 100;
+        let offset_beyond_bytes = bytes_to_lines(&bytes, beyond_bytes);
+        // Should return the last line number (count of newlines in entire bytes)
+        let last_line_num = bytes.iter().filter(|&&b| b == b'\n').count();
+        assert_eq!(
+            offset_beyond_bytes, last_line_num,
+            "Beyond bytes should return last line number"
+        );
+    }
+
+    #[test]
+    fn test_bytes_to_lines_and_lines_to_bytes() {
+        let all_lines = vec![
+            vec!["a"],
+            vec!["a\n"],
+            vec!["a\n", "bc\n"],
+            vec!["a\n", "bc\n", "\n"],
+            vec!["a\n", "bc\n", "\n", "\n"],
+            vec!["a\n", "bc\n", "de"],
+            vec!["a\n", "b"],
+            vec!["abcd\n", "abc\n", "abcde\n", "\n", "\n", "ab\n", "a"],
+            vec!["abcd\n", "abc\n", "abcde\n", "\n", "\n", "ab\n", "a\n"],
+            vec![
+                "abcd\n", "abc\n", "abcde\n", "\n", "\n", "ab\n", "a\n", "abc",
+            ],
+        ];
+        for lines in all_lines {
+            verify_bytes_to_lines_and_lines_to_bytes(lines);
+        }
+        //panic!();
+    }
+}
+
+// Local Variables:
+// rust-format-on-save: t
+// End:

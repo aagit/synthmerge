@@ -74,6 +74,9 @@ Instead of relying on a single model, `synthmerge` runs a **parallel inference e
 - **Vibe Continue Operation**  
   Use `--continue` with `--vibe` to automatically commit and continue cherry-pick, rebase, revert, or merge operations after resolving conflicts.
 
+- **Marker Mode**  
+  In vibe mode, synthmerge can detect cherry-picks requiring AI resolution, edit code beyond the original conflict markers and relocate conflicts to new positions in the file. To opt-out and strictly resolve conflicts within the diff3 conflict markers (matching non-vibe behavior), use the `--with-markers` option.
+
 ---
 
 ## 🛠 How It Works

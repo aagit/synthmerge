@@ -1,31 +1,77 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
-// Copyright (C) 2025  Red Hat, Inc.
+// Copyright (C) 2025-2026  Red Hat, Inc.
 
-use crate::api_cache::ApiCache;
 use crate::api_client::{ApiClient, ApiRequest, ApiResponse};
 use crate::config::{Config, EndpointConfig, EndpointTypeConfig};
-use crate::git_utils::ContextLines;
+use crate::lmdb_cache::{ApiCache, LmdbCacheImpl};
+use crate::patch_locator::Hunk;
 use crate::prob;
 use anyhow::Result;
 use futures::future::select_all;
 use regex::Regex;
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum CommitType {
+    Clean,
+    CleanDisabled,
+    ConflictAndClean,
+    #[default]
+    Conflict,
+}
+
+impl CommitType {
+    pub fn is_clean(&self) -> bool {
+        matches!(self, CommitType::Clean | CommitType::CleanDisabled)
+    }
+
+    pub fn is_conflict(&self) -> bool {
+        matches!(self, CommitType::Conflict | CommitType::ConflictAndClean)
+    }
+}
+
+impl std::ops::Add for CommitType {
+    type Output = Result<Self>;
+
+    fn add(self, other: Self) -> Self::Output {
+        use CommitType::*;
+        match (self, other) {
+            (Clean, Clean) => Ok(Clean),
+            (Conflict, Conflict) => Ok(Conflict),
+            (CleanDisabled, CleanDisabled) => Ok(CleanDisabled),
+            (Clean, CleanDisabled) => Ok(Clean),
+            (CleanDisabled, Clean) => Ok(Clean),
+            (_, _) => Ok(ConflictAndClean),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Conflict {
     pub file_path: String,
-    pub local: String,
-    pub base: String,
-    pub remote: String,
+    pub conflict_code: String,
     pub head_context: String,
     pub tail_context: String,
+    pub conflict_patch: String,
+    pub conflict_raw_patch: Option<String>,
     pub start_line: usize,
+    pub nr_conflict_lines: usize,
+    pub local_start: usize,
+    pub local_end: usize,
+    pub new_local_start: usize,
+    pub new_local_end: usize,
+    pub base_start: usize,
+    pub base_end: usize,
+    pub remote_start: usize,
     pub remote_end: usize,
     pub nr_head_context_lines: usize,
     pub nr_tail_context_lines: usize,
     pub marker_size: usize,
+    pub commit_type: CommitType,
+    pub merged_local_lines: Arc<Vec<String>>,
+    pub code_snippets: Arc<Vec<Snippet>>,
+    pub hunks: Vec<Hunk>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,17 +90,24 @@ pub struct ResolvedConflict {
 
 pub struct ResolverErrors {
     pub errors: HashMap<String, usize>,
+    pub retry_files: HashSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Snippet {
+    pub snippet: String,
+    pub local_start: usize,
+    pub local_end: usize,
 }
 
 pub struct ConflictResolver<'a> {
-    context_lines: ContextLines,
     config: &'a Config,
     git_diff: Option<String>,
     training: String,
     bench: bool,
     start_regex: Regex,
     end_regex: Regex,
-    api_cache: Option<Arc<ApiCache>>,
+    lmdb_cache: Option<Arc<LmdbCacheImpl>>,
 }
 
 impl<'a> ConflictResolver<'a> {
@@ -66,41 +119,34 @@ impl<'a> ConflictResolver<'a> {
     const CODE_END: &'static str = "<|/code|>";
     pub const PATCHED_CODE_START: &'static str = "<|patched_code|>";
     pub const PATCHED_CODE_END: &'static str = "<|/patched_code|>";
+    const CODE_SNIPPETS_START: &'static str = "<|code_snippets|>";
+    const CODE_SNIPPETS_END: &'static str = "<|/code_snippets|>";
+    const CODE_SNIPPET_START: &'static str = "<|code_snippet|>";
+    const CODE_SNIPPET_END: &'static str = "<|/code_snippet|>";
     const REGEXP_PATCHED_CODE_START: &'static str = r"(?ms)^[{<|]{1,3}patched_code[|>}]{1,3}$\n";
     const REGEXP_PATCHED_CODE_END: &'static str = r"(?ms)^[{<|/]{1,4}patched_code[|>}]{1,3}$";
     pub fn new(
-        context_lines: ContextLines,
         config: &'a Config,
         git_diff: Option<String>,
         bench: bool,
         cache_path: Option<String>,
         cache_overwrite: bool,
     ) -> Self {
-        let mut api_cache: Option<Arc<ApiCache>> = None;
+        let mut lmdb_cache: Option<Arc<LmdbCacheImpl>> = None;
         if let Some(ref path) = cache_path {
-            let dir = Path::new(path);
-            if !dir.exists() {
-                std::fs::create_dir_all(dir).expect("Failed to create cache directory");
-            }
-            let env = lmdb::Environment::new()
-                .set_map_size(32 * 1024 * 1024 * 1024)
-                .set_flags(lmdb::EnvironmentFlags::NO_META_SYNC | lmdb::EnvironmentFlags::NO_TLS)
-                .open_with_permissions(dir, 0o600)
-                .expect("open lmdb env");
-            let db = env
-                .create_db(None, lmdb::DatabaseFlags::empty())
-                .expect("open index db");
-            api_cache = Some(Arc::new(ApiCache::new(env, db, cache_overwrite)));
+            lmdb_cache = Some(Arc::new(
+                ApiCache::create_from_path(path, cache_overwrite)
+                    .expect("Failed to create API cache"),
+            ));
         }
         ConflictResolver {
-            context_lines,
             config,
-            git_diff: Self::__git_diff(git_diff),
+            git_diff: Self::git_diff(git_diff),
             training: Self::create_training(),
             bench,
             start_regex: Regex::new(Self::REGEXP_PATCHED_CODE_START).unwrap(),
             end_regex: Regex::new(Self::REGEXP_PATCHED_CODE_END).unwrap(),
-            api_cache,
+            lmdb_cache,
         }
     }
 
@@ -108,22 +154,55 @@ impl<'a> ConflictResolver<'a> {
     pub async fn resolve_conflicts(
         self,
         conflicts: &[Conflict],
+        prev_resolved_conflicts: &[ResolvedConflict],
     ) -> Result<(Vec<ResolvedConflict>, ResolverErrors)> {
         let config = &self.config;
         let endpoints = config.get_all_endpoints();
         let mut resolved_conflicts = Vec::new();
         let mut resolver_errors = ResolverErrors {
             errors: HashMap::new(),
+            retry_files: HashSet::new(),
         };
 
         for (conflict_index, conflict) in conflicts.iter().enumerate() {
-            if !self.bench {
+            // Check if we have a previous resolved conflict that matches this one
+            let mut skip_ai_resolution = false;
+            for prev_conflict in prev_resolved_conflicts {
+                for (endpoint_index, _) in endpoints.iter().enumerate() {
+                    if prev_conflict.conflict.file_path == conflict.file_path
+                        && prev_conflict.conflict.local_start == conflict.local_start
+                        && prev_conflict.conflict.local_end == conflict.local_end
+                        && prev_conflict.endpoint == endpoint_index
+                    {
+                        resolved_conflicts.push(prev_conflict.clone());
+                        skip_ai_resolution = true;
+                        break;
+                    }
+                }
+                if skip_ai_resolution {
+                    break;
+                }
+            }
+            if skip_ai_resolution {
                 let conflict_info = format!(
-                    "Resolving conflict {} of {} in {}:{}",
+                    "Skipping resolved conflict {} of {} in {}:{}->{}",
                     conflict_index + 1,
                     conflicts.len(),
                     conflict.file_path,
-                    conflict.start_line
+                    conflict.start_line,
+                    conflict.local_start
+                );
+                log::info!("{}", conflict_info);
+                continue;
+            }
+            if !self.bench {
+                let conflict_info = format!(
+                    "Resolving conflict {} of {} in {}:{}->{}",
+                    conflict_index + 1,
+                    conflicts.len(),
+                    conflict.file_path,
+                    conflict.start_line,
+                    conflict.local_start
                 );
                 println!("{}", conflict_info);
                 log::info!("{}", conflict_info);
@@ -131,15 +210,18 @@ impl<'a> ConflictResolver<'a> {
 
             // Create the prompt for AI resolution
             let prompt = self.create_prompt(conflict);
-            let patch = self.create_patch(conflict);
-            let code = self.create_code(conflict);
+            let patch = conflict.conflict_patch.clone();
+            let code = format!(
+                "{}{}{}",
+                conflict.head_context, conflict.conflict_code, conflict.tail_context
+            );
             let message = self.create_message(&patch, &code);
             let git_diff = self.create_git_diff(conflict);
 
             // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
             for (endpoint_index, endpoint) in endpoints.iter().enumerate() {
-                let client = ApiClient::new(endpoint.clone(), self.api_cache.clone());
+                let client = ApiClient::new(endpoint.clone(), self.lmdb_cache.clone());
                 let name = endpoint.name.clone();
                 let api_request = ApiRequest {
                     prompt: prompt.clone(),
@@ -320,7 +402,7 @@ impl<'a> ConflictResolver<'a> {
                 Ok(r) => r,
                 Err(e) => {
                     let model = &endpoints[endpoint].name;
-                    log::warn!("Skipping {} due to error: {}", model, e);
+                    log::error!("Skipping {} due to error: {}", model, e);
                     *resolver_errors.errors.entry(model.to_string()).or_insert(0) += 1;
                     continue;
                 }
@@ -332,7 +414,7 @@ impl<'a> ConflictResolver<'a> {
                         Ok(api_response_entry) => api_response_entry,
                         Err(e) => {
                             let model = self.get_model_name(endpoints, endpoint, variant, beam);
-                            log::warn!("Skipping {} - {}", model, e);
+                            log::error!("Skipping {} - {}", model, e);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
                             continue;
                         }
@@ -344,6 +426,11 @@ impl<'a> ConflictResolver<'a> {
                             let model = self.get_model_name(endpoints, endpoint, variant, beam);
                             log::warn!("Skipping {} - {}", model, e);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            if beam == 0 {
+                                resolver_errors
+                                    .retry_files
+                                    .insert(conflict.file_path.clone());
+                            }
                             continue;
                         }
                     };
@@ -354,18 +441,18 @@ impl<'a> ConflictResolver<'a> {
                     for (multi, resolved_string) in resolved_strings.iter().enumerate() {
                         let model =
                             self.get_model_name_multi(endpoints, endpoint, variant, beam, multi);
-                        let mut new_resolved_string = resolved_string.clone();
+                        let mut resolved_version = resolved_string.to_string();
 
                         let mut found_context = false;
                         for _ in 0..conflict.nr_head_context_lines.saturating_sub(1).max(1) {
-                            if new_resolved_string.starts_with(&conflict.head_context) {
+                            if resolved_version.starts_with(&conflict.head_context) {
                                 found_context = true;
                                 break;
                             }
                             // if conflict.head_context.trim().is_empty() {
                             //     break;
                             // }
-                            new_resolved_string = format!("\n{}", new_resolved_string);
+                            resolved_version = format!("\n{}", resolved_version);
                         }
                         if !found_context {
                             log::warn!("Skipping {} - doesn't start with head context", model);
@@ -377,7 +464,11 @@ impl<'a> ConflictResolver<'a> {
                             );
                             log::info!("HeadContextDiff:\n{}", diff);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
-
+                            if beam == 0 && multi == 0 {
+                                resolver_errors
+                                    .retry_files
+                                    .insert(conflict.file_path.clone());
+                            }
                             continue;
                         }
                         let leading_tail_context = if !conflict.head_context.is_empty() {
@@ -387,14 +478,14 @@ impl<'a> ConflictResolver<'a> {
                         };
                         let mut found_context = false;
                         for _ in 0..conflict.nr_tail_context_lines.saturating_sub(1).max(1) {
-                            if new_resolved_string.ends_with(leading_tail_context) {
+                            if resolved_version.ends_with(leading_tail_context) {
                                 found_context = true;
                                 break;
                             }
                             // if conflict.head_context.trim().is_empty() {
                             //     break;
                             // }
-                            new_resolved_string = format!("{}\n", resolved_string);
+                            resolved_version = format!("{}\n", resolved_string);
                         }
                         if !found_context {
                             log::warn!("Skipping {} - doesn't end with tail context", model);
@@ -407,36 +498,51 @@ impl<'a> ConflictResolver<'a> {
                             );
                             log::info!("TailContextDiff:\n{}", diff);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            if beam == 0 && multi == 0 {
+                                resolver_errors
+                                    .retry_files
+                                    .insert(conflict.file_path.clone());
+                            }
                             continue;
                         }
-                        let resolved_string = new_resolved_string;
                         //reduce resolved to the range between head_context and tail_context
-                        let resolved_content = if resolved_string.len()
-                            >= conflict.head_context.len() + conflict.tail_context.len()
-                        {
-                            resolved_string[conflict.head_context.len()
-                                ..resolved_string.len() - conflict.tail_context.len()]
-                                .to_string()
-                        } else {
+                        let context_len = conflict.head_context.len() + conflict.tail_context.len();
+                        if resolved_version.len() < context_len {
                             log::warn!(
                                 "Skipping {} - resolved content is too short to contain both head and tail context",
                                 model
                             );
                             log::trace!("ResolvedContent:\n{}", resolved_string);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            if beam == 0 && multi == 0 {
+                                resolver_errors
+                                    .retry_files
+                                    .insert(conflict.file_path.clone());
+                            }
                             continue;
                         };
-                        if !resolved_content.is_empty() && !resolved_content.ends_with('\n') {
-                            log::error!(
+
+                        resolved_version.drain(0..conflict.head_context.len());
+                        resolved_version
+                            .drain(resolved_version.len() - conflict.tail_context.len()..);
+
+                        if resolved_version.chars().last().is_some_and(|c| c != '\n') {
+                            log::warn!(
                                 "Skipping {} - resolved content is not newline terminated",
                                 model
                             );
-                            log::trace!("ResolvedContent:\n{}", resolved_content);
+                            log::trace!("ResolvedContent:\n{}", resolved_version);
                             *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            if beam == 0 && multi == 0 {
+                                resolver_errors
+                                    .retry_files
+                                    .insert(conflict.file_path.clone());
+                            }
                             continue;
                         }
-                        // Check if this resolved_content is already in the results
-                        let key = (endpoint, resolved_content.clone());
+
+                        // Check if this resolved_version is already in the results
+                        let key = (endpoint, resolved_version.clone());
                         if seen_resolved.contains_key(&key) {
                             log::debug!("Skipping {} - duplicate resolved conflict", model);
                             continue;
@@ -448,7 +554,7 @@ impl<'a> ConflictResolver<'a> {
                         let duration = api_response_entry.duration;
                         resolved_conflicts.push(ResolvedConflict {
                             conflict: conflict.clone(),
-                            resolved_version: resolved_content,
+                            resolved_version,
                             model,
                             duration,
                             total_tokens,
@@ -465,7 +571,7 @@ impl<'a> ConflictResolver<'a> {
     }
 
     /// Create a prompt for the AI to resolve the conflict
-    fn __git_diff(git_diff: Option<String>) -> Option<String> {
+    fn git_diff(git_diff: Option<String>) -> Option<String> {
         git_diff.map(|s| {
             format!(
                 r#"The PATCH originates from the DIFF between {diff_start}{diff_end}.
@@ -478,13 +584,78 @@ impl<'a> ConflictResolver<'a> {
         })
     }
 
-    fn create_git_diff(&self, conflict: &Conflict) -> Option<String> {
-        if let Some(git_diff) = &self.git_diff
-            && git_diff.contains(&conflict.file_path)
-        {
-            return Some(git_diff.clone());
+    fn code_snippets(conflict: &Conflict) -> Option<String> {
+        let code_snippets = &conflict.code_snippets;
+        if code_snippets.is_empty() {
+            return None;
         }
-        None
+        let snippets_with_wrappers = code_snippets
+            .iter()
+            .filter(|s| conflict.local_start > s.local_start || conflict.local_end < s.local_end)
+            .map(|s| {
+                format!(
+                    "{}\n{}{}",
+                    Self::CODE_SNIPPET_START,
+                    s.snippet,
+                    Self::CODE_SNIPPET_END
+                )
+            })
+            .collect::<Vec<String>>();
+        if snippets_with_wrappers.is_empty() {
+            return None;
+        }
+        let snippets_with_wrappers = snippets_with_wrappers.join("\n");
+
+        Some(format!(
+            r#"Review the other conflicting CODE SNIPPETS in {file_path} between {code_snippets_start}{code_snippets_end}.
+
+{code_snippets_start}
+{snippets_with_wrappers}
+{code_snippets_end}"#,
+            code_snippets_start = Self::CODE_SNIPPETS_START,
+            code_snippets_end = Self::CODE_SNIPPETS_END,
+            file_path = conflict.file_path,
+        ))
+    }
+
+    fn raw_patch(raw_patch: &str, file_path: &str) -> String {
+        format!(
+            r#"The DIFF for {file_path} that remains to be applied is between {diff_start}{diff_end}.
+
+{diff_start}
+{raw_patch}{diff_end}"#,
+            diff_start = Self::DIFF_START,
+            diff_end = Self::DIFF_END,
+        )
+    }
+
+    fn create_git_diff(&self, conflict: &Conflict) -> Option<String> {
+        let mut parts = Vec::new();
+        let mut has_diff = false;
+        if let Some(diff) = &self.git_diff
+            && diff.contains(&conflict.file_path)
+        {
+            parts.push(diff.clone());
+            has_diff = true;
+        }
+        if conflict.commit_type == CommitType::ConflictAndClean {
+            parts.push(Self::raw_patch(
+                conflict.conflict_raw_patch.as_ref().unwrap(),
+                &conflict.file_path,
+            ));
+            has_diff = true;
+        }
+        if let Some(snippets) = Self::code_snippets(conflict) {
+            parts.push(snippets);
+            if has_diff {
+                parts.push("Apply only the adapted PATCH, do not apply other parts of the DIFF to the CODE. The entire DIFF will be applied to all CODE SNIPPETS to produce the final PATCHED CODE SNIPPETS. Adapt the PATCH accordingly so the PATCHED CODE works correctly with the PATCHED CODE SNIPPETS.".to_string());
+            }
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n\n"))
+        }
     }
 
     /// Create a prompt for the AI to resolve the conflict
@@ -593,19 +764,6 @@ static inline struct feat *get_special_something(double option, struct device *d
         )
     }
 
-    fn create_patch(&self, conflict: &Conflict) -> String {
-        let base = format!(
-            "{}{}{}",
-            conflict.head_context, conflict.base, conflict.tail_context
-        );
-        let remote = format!(
-            "{}{}{}",
-            conflict.head_context, conflict.remote, conflict.tail_context
-        );
-
-        Self::create_diff(&base, &remote, self.context_lines.patch_context_lines)
-    }
-
     pub fn create_diff(base: &str, remote: &str, patch_context_lines: u32) -> String {
         use similar::{Algorithm, TextDiff};
         let diff = TextDiff::configure()
@@ -614,13 +772,6 @@ static inline struct feat *get_special_something(double option, struct device *d
         diff.unified_diff()
             .context_radius(patch_context_lines as usize)
             .to_string()
-    }
-
-    fn create_code(&self, conflict: &Conflict) -> String {
-        format!(
-            "{}{}{}",
-            conflict.head_context, conflict.local, conflict.tail_context
-        )
     }
 
     /// Parse the API response into 3 solutions
@@ -662,6 +813,66 @@ static inline struct feat *get_special_something(double option, struct device *d
         } else {
             Ok(results)
         }
+    }
+
+    /// Keep only the conflicts that had a solution for all endpoints and are in retry_files.
+    /// Returns two vectors:
+    /// 1. The list of unique Conflict keys (file_name, local_start)
+    ///    that were successfully resolved.
+    /// 2. The list of ResolvedConflict for those conflicts.
+    pub fn keep_solved_conflicts(
+        conflicts: Vec<Conflict>,
+        resolved_conflicts: &[ResolvedConflict],
+        retry_files: &HashSet<String>,
+        nr_endpoints: usize,
+    ) -> Vec<ResolvedConflict> {
+        // Group resolved conflicts by (file_path, local_start)
+        let mut resolved_by_key: HashMap<(String, usize), Vec<ResolvedConflict>> = HashMap::new();
+        for resolved in resolved_conflicts.iter().filter(|r| {
+            (r.multi == Some(0) || r.multi.is_none()) && (r.beam == Some(0) || r.beam.is_none())
+        }) {
+            let key = (
+                resolved.conflict.file_path.clone(),
+                resolved.conflict.local_start,
+            );
+            resolved_by_key
+                .entry(key)
+                .or_default()
+                .push(resolved.clone());
+        }
+
+        // Group original conflicts by (file_path, local_start)
+        let mut original_by_key: HashMap<(String, usize), Conflict> = HashMap::new();
+        for conflict in &conflicts {
+            let key = (conflict.file_path.clone(), conflict.local_start);
+            original_by_key.entry(key).or_insert(conflict.clone());
+        }
+
+        // Collect unique conflicts and their resolved versions
+        let mut resolved_for_keys: Vec<ResolvedConflict> = Vec::new();
+
+        for (key, _) in original_by_key.iter() {
+            if !retry_files.contains(&key.0) {
+                continue;
+            }
+            if !resolved_by_key.contains_key(key) {
+                continue;
+            }
+            // Check if all endpoints have a solution for this conflict
+            let resolved_list = &resolved_by_key[key];
+            let mut has_all_endpoints = true;
+            for endpoint_idx in 0..nr_endpoints {
+                if !resolved_list.iter().any(|r| r.endpoint == endpoint_idx) {
+                    has_all_endpoints = false;
+                    break;
+                }
+            }
+            if has_all_endpoints {
+                resolved_for_keys.extend(resolved_list.clone());
+            }
+        }
+
+        resolved_for_keys
     }
 }
 

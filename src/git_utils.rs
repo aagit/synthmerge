@@ -1,19 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
-// Copyright (C) 2025  Red Hat, Inc.
+// Copyright (C) 2025-2026  Red Hat, Inc.
 
-use crate::conflict_resolver::{Conflict, ResolvedConflict};
+use crate::conflict_resolver::{CommitType, Conflict, ConflictResolver, ResolvedConflict};
+use crate::lmdb_cache::{LmdbCacheImpl, PatchLocatorCache};
+use crate::patch_locator::{PatchLocator, PatchLocatorData};
 use crate::prob;
 use anyhow::{Context, Result};
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::fs::{OpenOptions, Permissions};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct ContextLines {
     pub code_context_lines: u32,
     pub diff_context_lines: u32,
     pub patch_context_lines: u32,
+    pub extra_conflict_lines: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +33,7 @@ pub struct OperationHead {
 // Wrapper around Command to allow inheritance-like behavior
 pub struct GitCommand {
     command: Command,
+    verbose: bool,
 }
 
 /// Remove conflict markers from content
@@ -39,7 +47,10 @@ enum ConflictMarkerMode {
 impl GitCommand {
     pub fn new(program: &str) -> Self {
         let cmd = Command::new(program);
-        GitCommand { command: cmd }
+        GitCommand {
+            command: cmd,
+            verbose: true,
+        }
     }
 
     pub fn args<I, S>(&mut self, args: I) -> &mut Self
@@ -48,6 +59,11 @@ impl GitCommand {
         S: AsRef<std::ffi::OsStr>,
     {
         self.command.args(args);
+        self
+    }
+
+    pub fn verbose(&mut self, verbose: bool) -> &mut Self {
+        self.verbose = verbose;
         self
     }
 
@@ -60,20 +76,41 @@ impl GitCommand {
             .collect::<Vec<_>>()
             .join(" ");
         let output = self.command.output().context("Failed to execute command")?;
-        log::debug!("GitCommand: {program} {args_str} {{{}}}", output.status);
-        if !output.status.success() {
-            log::debug!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-            log::debug!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+        if self.verbose {
+            log::debug!("GitCommand: {program} {args_str} {{{}}}", output.status);
+            if !output.status.success() {
+                log::debug!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+                log::debug!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            }
         }
         Ok(output)
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolutionMode {
+    Interactive,
+    VibeWithPatchLocator,
+    VibeWithMarkers,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ConflictOffsets {
+    local: usize,
+    base: usize,
+    remote: usize,
+}
+
 pub struct GitUtils {
-    context_lines: ContextLines,
+    context_lines: Arc<ContextLines>,
     in_rebase: bool,
     git_root: Option<String>,
     git_dir: Option<String>,
+    patch_locator: PatchLocator,
+    blob_cache: HashMap<String, Arc<String>>,
+    lmdb_cache: Option<Arc<LmdbCacheImpl>>,
+    resolution_mode: ResolutionMode,
+    retries: usize,
 }
 
 impl GitUtils {
@@ -83,23 +120,114 @@ impl GitUtils {
 
     const DEFAULT_MARKER_SIZE: usize = 7;
 
-    pub fn new(context_lines: ContextLines, init_git: bool) -> Self {
-        let git_root = if init_git {
-            Self::get_git_root_uncached().ok()
-        } else {
-            None
-        };
-        let git_dir = if init_git {
-            Self::get_git_dir_uncached().ok()
-        } else {
-            None
-        };
+    pub fn new(
+        context_lines: ContextLines,
+        cache_path: Option<String>,
+        cache_overwrite: bool,
+        resolution_mode: ResolutionMode,
+        retries: usize,
+    ) -> Self {
+        let context_lines = Arc::new(context_lines);
+        let git_root = Self::get_git_root_uncached().ok();
+        let git_dir = Self::get_git_dir_uncached().ok();
+        let lmdb_cache = cache_path.map(|path| {
+            Arc::new(
+                PatchLocatorCache::create_from_path(&path, cache_overwrite)
+                    .expect("Failed to create API cache"),
+            )
+        });
+        let patch_locator = PatchLocator::new();
         GitUtils {
             context_lines,
             in_rebase: false,
             git_root,
             git_dir,
+            patch_locator,
+            blob_cache: HashMap::new(),
+            lmdb_cache,
+            resolution_mode,
+            retries,
         }
+    }
+
+    /// Reset context lines to their original values after successful resolution
+    pub fn restore_context_lines(&mut self, original: &ContextLines) {
+        Arc::get_mut(&mut self.context_lines)
+            .unwrap()
+            .code_context_lines = original.code_context_lines;
+        Arc::get_mut(&mut self.context_lines)
+            .unwrap()
+            .diff_context_lines = original.diff_context_lines;
+        Arc::get_mut(&mut self.context_lines)
+            .unwrap()
+            .patch_context_lines = original.patch_context_lines;
+        Arc::get_mut(&mut self.context_lines)
+            .unwrap()
+            .extra_conflict_lines = original.extra_conflict_lines;
+    }
+
+    /// Retry logic: decrement retries and adjust context lines based
+    /// on resolution mode
+    pub fn can_retry(&mut self) -> bool {
+        if self.retries == 0 {
+            return false;
+        }
+
+        self.retries -= 1;
+
+        match self.resolution_mode {
+            ResolutionMode::VibeWithMarkers => {
+                if self.context_lines.code_context_lines == 0 {
+                    return false;
+                }
+                println!(
+                    "Retrying resolution with reduced --code-context-lines ({} -> {})",
+                    self.context_lines.code_context_lines,
+                    self.context_lines.code_context_lines.saturating_sub(1)
+                );
+                Arc::get_mut(&mut self.context_lines)
+                    .unwrap()
+                    .code_context_lines = self.context_lines.code_context_lines.saturating_sub(1);
+
+                true
+            }
+            ResolutionMode::VibeWithPatchLocator => {
+                println!(
+                    "Retrying resolution with increased --extra-conflict-lines ({} -> {})",
+                    self.context_lines.extra_conflict_lines,
+                    self.context_lines.extra_conflict_lines.saturating_add(1)
+                );
+                Arc::get_mut(&mut self.context_lines)
+                    .unwrap()
+                    .extra_conflict_lines =
+                    self.context_lines.extra_conflict_lines.saturating_add(1);
+
+                true
+            }
+            ResolutionMode::Interactive => {
+                println!(
+                    "You can retry with --vibe or with reduced --code-context-lines ({} -> {})",
+                    self.context_lines.code_context_lines,
+                    self.context_lines.code_context_lines.saturating_sub(1)
+                );
+
+                false
+            }
+        }
+    }
+
+    /// Run git status --porcelain=v2 -z
+    fn git_status_porcelain_v2(&self, path: Option<&str>) -> Result<std::process::Output> {
+        let git_root = self.git_root.as_ref().unwrap();
+        let mut args = vec!["-C", git_root, "status", "--porcelain=v2", "-z"];
+        if let Some(p) = path {
+            args.push("--");
+            args.push(p);
+        }
+        GitCommand::new("git")
+            .args(&args)
+            .output()
+            .context("Failed to execute git status --porcelain=v2 -z")
     }
 
     /// Check that git cherry-pick default is diff3 for merge.conflictStyle
@@ -128,49 +256,236 @@ impl GitUtils {
     }
 
     /// Find all conflict markers in the repository
-    pub fn find_conflicts(&self) -> Result<Vec<Conflict>> {
-        let mut conflicts = Vec::new();
+    pub fn find_conflicts(
+        &mut self,
+        max_context_size: u32,
+        prev_conflicts: &[ResolvedConflict],
+    ) -> Result<Vec<Conflict>> {
+        // Run git status --porcelain=v2 -z to get blob hashes
+        let output = self.git_status_porcelain_v2(None)?;
 
-        // Find all files that might contain conflicts
+        // Parse the status output to find the unmerged entry for this file
+        let status_output_bytes = &output.stdout;
+        let lines = status_output_bytes.split(|&b| b == b'\0').peekable();
+
+        let mut all_conflicts: Vec<Conflict> = Vec::new();
+        for line_bytes in lines {
+            let line = String::from_utf8_lossy(line_bytes);
+            // Skip header lines
+            // if line.starts_with('#') {
+            //     continue;
+            // }
+
+            // Parse unmerged entries (format: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>)
+            if line.starts_with("u UU") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 11 {
+                    // let (base_blob, remote_blob) = (parts[7].to_string(), parts[9].to_string());
+                    let (local_blob, file_path) = (parts[8].to_string(), parts[10].to_string());
+
+                    let marker_size = self.get_marker_size_for_file(&file_path)?;
+
+                    let path = Path::new(self.git_root.as_ref().unwrap()).join(&file_path);
+                    let merged_content = Arc::new(
+                        fs::read_to_string(&path)
+                            .context(format!("Failed to read file: {}", file_path))?,
+                    );
+
+                    let mut conflicts = self.parse_conflicts(&merged_content, marker_size)?;
+                    if conflicts.is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "No conflicts found in unmerged file: {}",
+                            file_path
+                        ));
+                    }
+                    for conflict in &mut conflicts {
+                        conflict.file_path = file_path.to_string();
+                        conflict.marker_size = marker_size;
+                    }
+
+                    // Get the blob contents
+                    let local_content = self.get_blob_content_cached(&local_blob)?;
+
+                    // Compute diff between base and remote using git command
+                    // let diff = GitCommand::new("git")
+                    //     .args([
+                    //         "diff",
+                    //         "--pretty=",
+                    //         "--no-color",
+                    //         "--histogram",
+                    //         &format!("-U{}", self.context_lines.patch_context_lines),
+                    //         &base_blob.to_string(),
+                    //         &remote_blob.to_string(),
+                    //     ])
+                    //     .output()
+                    //     .context("Failed to execute git diff for blob")?;
+
+                    // let diff = Arc::new(String::from_utf8_lossy(&diff.stdout).to_string());
+
+                    let merged_content_lines: Vec<String> = merged_content
+                        .split_inclusive('\n')
+                        .map(|s| s.to_string())
+                        .collect();
+
+                    let remove_conflict_markers =
+                        |mode: ConflictMarkerMode| -> Result<(Arc<Vec<String>>, Arc<String>)> {
+                            let cleaned_lines: Vec<String> = Self::remove_conflict_markers(
+                                &merged_content_lines
+                                    .iter()
+                                    .map(|s| s.as_str())
+                                    .collect::<Vec<_>>(),
+                                marker_size,
+                                mode,
+                            )?
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect();
+                            let cleaned_content = Arc::new(cleaned_lines.join(""));
+                            Ok((Arc::new(cleaned_lines), cleaned_content))
+                        };
+
+                    let (merged_local_lines, merged_local_content) =
+                        remove_conflict_markers(ConflictMarkerMode::Local)?;
+                    let (_, merged_base_content) =
+                        remove_conflict_markers(ConflictMarkerMode::Base)?;
+                    let (_, merged_remote_content) =
+                        remove_conflict_markers(ConflictMarkerMode::Remote)?;
+
+                    let clean_diff = Arc::new(ConflictResolver::create_diff(
+                        &local_content,
+                        &merged_local_content,
+                        self.context_lines.patch_context_lines,
+                    ));
+                    let conflict_diff = if true {
+                        Arc::new(ConflictResolver::create_diff(
+                            &merged_base_content,
+                            &merged_remote_content,
+                            self.context_lines.patch_context_lines,
+                        ))
+                    } else {
+                        let temp_dir = tempfile::Builder::new()
+                            .permissions(Permissions::from_mode(0o700))
+                            .prefix("synthmerge_")
+                            .tempdir_in("/dev/shm")?;
+
+                        let creat = &mut OpenOptions::new();
+                        creat.read(true).write(true).create_new(true).mode(0o600);
+
+                        let base_path = temp_dir.path().join("base");
+                        let remote_path = temp_dir.path().join("remote");
+
+                        let mut base = creat.open(&base_path)?;
+                        let mut remote = creat.open(&remote_path)?;
+
+                        std::io::Write::write_all(&mut base, merged_base_content.as_bytes())?;
+                        std::io::Write::write_all(&mut remote, merged_remote_content.as_bytes())?;
+
+                        let output = GitCommand::new("git")
+                            .verbose(false)
+                            .args([
+                                "diff",
+                                "--no-index",
+                                "--histogram",
+                                &format!("-U{}", self.context_lines.patch_context_lines),
+                                base_path.to_str().unwrap(),
+                                remote_path.to_str().unwrap(),
+                            ])
+                            .output()
+                            .context("Failed to execute git diff for conflicts")?;
+
+                        Arc::new(String::from_utf8_lossy(&output.stdout).to_string())
+                    };
+
+                    if self.resolution_mode == ResolutionMode::VibeWithPatchLocator {
+                        let patch_locator_data = PatchLocatorData {
+                            local_content: local_content.clone(),
+                            merged_local_content: merged_local_content.clone(),
+                            merged_local_lines: merged_local_lines.clone(),
+                            clean_diff: clean_diff.clone(),
+                            conflict_diff: conflict_diff.clone(),
+                            lmdb_cache: self.lmdb_cache.clone(),
+                            context_lines: self.context_lines.clone(),
+                            max_context_size,
+                        };
+                        self.patch_locator
+                            .patch_locator(&mut conflicts, &patch_locator_data)?;
+                    }
+
+                    for conflict in &mut conflicts {
+                        conflict.merged_local_lines = merged_local_lines.clone();
+                    }
+
+                    // Replace solved conflicts with previous ones if hunks are identical
+                    Self::replace_solved_conflicts(&mut conflicts, prev_conflicts);
+
+                    all_conflicts.extend(conflicts);
+                }
+            }
+        }
+
+        Ok(all_conflicts)
+    }
+
+    /// Replace new conflicts with previous ones if their hunks are identical.
+    /// This is used to avoid re-resolving conflicts that haven't changed.
+    fn replace_solved_conflicts(conflicts: &mut [Conflict], prev_conflicts: &[ResolvedConflict]) {
+        for conflict in conflicts.iter_mut() {
+            if let Some(prev_conflict) = prev_conflicts.iter().find(|p| {
+                p.conflict.file_path == conflict.file_path
+                    && p.conflict.conflict_patch == conflict.conflict_patch
+            }) {
+                *conflict = prev_conflict.conflict.clone();
+            }
+        }
+    }
+
+    /// Get the content of a git blob, using cache if available
+    fn get_blob_content_cached(&mut self, blob_hash: &str) -> Result<Arc<String>> {
+        if let Some(cached) = self.blob_cache.get(blob_hash) {
+            return Ok(cached.clone());
+        }
+
+        let content = Arc::new(self.get_blob_content(blob_hash)?);
+        self.blob_cache
+            .insert(blob_hash.to_string(), content.clone());
+        Ok(content)
+    }
+
+    /// Get the content of a git blob
+    fn get_blob_content(&self, blob_hash: &str) -> Result<String> {
+        let git_root = self.git_root.as_ref().unwrap();
         let output = GitCommand::new("git")
-            .args(["diff", "--name-only", "--diff-filter=U"])
+            .args(["-C", git_root, "show", blob_hash])
             .output()
-            .context("Failed to execute git diff")?;
+            .context("Failed to execute git show for blob")?;
 
         if !output.status.success() {
             return Err(anyhow::anyhow!(
-                "Git diff failed: {}",
+                "Git show for blob {} failed: {}",
+                blob_hash,
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
 
-        let diff_output = String::from_utf8_lossy(&output.stdout);
-        for line in diff_output.lines() {
-            let file_path = line.trim();
-            let conflict = self.parse_conflict_from_file(file_path)?;
-            conflicts.extend(conflict);
+        let mut content = String::from_utf8_lossy(&output.stdout).to_string();
+
+        // Check if the blob is empty
+        if content.is_empty() {
+            return Err(anyhow::anyhow!("Blob {} is empty", blob_hash));
         }
 
-        Ok(conflicts)
+        // Check if the content is newline terminated
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+
+        Ok(content)
     }
 
-    /// Parse conflicts from a specific file
-    fn parse_conflict_from_file(&self, file_path: &str) -> Result<Vec<Conflict>> {
-        let path = Path::new(self.git_root.as_ref().unwrap()).join(file_path);
-        let mut conflicts = Vec::new();
-        let content = match fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to read file: {}: {}", file_path, e);
-                return Ok(conflicts);
-            }
-        };
-
-        // Get the marker size for this file from gitattributes
-        let marker_size = self.get_marker_size_for_file(file_path)?;
-
-        let re = Regex::new(&format!(
-            r"(?ms)(^{} .*?^{} .*?^{}\n.*?^{}.*?\n)",
+    /// Create a regex pattern for matching conflict markers
+    fn create_conflict_regex(marker_size: usize) -> Result<Regex> {
+        Regex::new(&format!(
+            r"(?ms)(^{}(?: .*?)?\n.*?^{}(?: .*?)?\n.*?^{}(?: .*?)?\n.*?^{}(?: .*?)?(?:\n|$))",
             Self::create_local_marker(marker_size),
             Self::create_base_marker(marker_size)
                 .chars()
@@ -179,22 +494,29 @@ impl GitUtils {
             Self::create_remote_marker(marker_size),
             Self::create_end_marker(marker_size),
         ))
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("Failed to create conflict regex: {}", e))
+    }
 
-        for cap in re.captures_iter(&content) {
+    /// Parse conflicts from file content
+    fn parse_conflicts(&self, content: &str, marker_size: usize) -> Result<Vec<Conflict>> {
+        let mut conflicts = Vec::new();
+
+        let re = Self::create_conflict_regex(marker_size)?;
+
+        let mut offsets = ConflictOffsets::default();
+        for cap in re.captures_iter(content) {
             let this_cap = cap.get(0).unwrap();
             let conflict_text = this_cap.as_str();
             let start_line = content[..this_cap.start()]
                 .chars()
                 .filter(|&c| c == '\n')
-                .count()
-                + 1;
+                .count();
             let conflict = self.parse_conflict_text(
                 conflict_text,
-                &content,
+                content,
                 start_line,
-                file_path,
                 marker_size,
+                &mut offsets,
             )?;
             conflicts.push(conflict);
         }
@@ -210,12 +532,12 @@ impl GitUtils {
         marker_size: usize,
         mode: ConflictMarkerMode,
     ) -> Result<(usize, usize, String, String)> {
-        let head_context_end = start_line.saturating_sub(1);
-        let head_content_lines = content_lines[..head_context_end].to_vec();
+        let head_context_end = start_line;
+        let head_content_lines = &content_lines[..head_context_end].to_vec();
 
         const CONTEXT_BEYOND_MARKER: bool = false;
         let head_content_lines = if CONTEXT_BEYOND_MARKER {
-            Self::remove_conflict_markers(head_content_lines.to_vec(), marker_size, mode)
+            Self::remove_conflict_markers(head_content_lines, marker_size, mode)
         } else {
             Ok(head_content_lines
                 .iter()
@@ -234,7 +556,7 @@ impl GitUtils {
             .to_vec();
         let nr_head_context_lines = head_context_lines.len();
 
-        let tail_content_lines = content_lines[start_line + conflict_lines.len() - 1..].to_vec();
+        let tail_content_lines = &content_lines[start_line + conflict_lines.len()..];
         let tail_content_lines = if CONTEXT_BEYOND_MARKER {
             Self::remove_conflict_markers(tail_content_lines, marker_size, mode)
         } else {
@@ -260,14 +582,30 @@ impl GitUtils {
         ))
     }
 
+    pub fn create_diff_from_separated(
+        head_context: &str,
+        tail_context: &str,
+        base: &str,
+        remote: &str,
+        patch_context_lines: u32,
+    ) -> String {
+        let base_with_context = format!("{}{}{}", head_context, base, tail_context);
+        let remote_with_context = format!("{}{}{}", head_context, remote, tail_context);
+        ConflictResolver::create_diff(
+            &base_with_context,
+            &remote_with_context,
+            patch_context_lines,
+        )
+    }
+
     /// Parse a conflict block into structured data
     fn parse_conflict_text(
         &self,
         conflict_text: &str,
         content: &str,
         start_line: usize,
-        file_path: &str,
         marker_size: usize,
+        offsets: &mut ConflictOffsets,
     ) -> Result<Conflict> {
         let conflict_lines: Vec<&str> = conflict_text.split_inclusive('\n').collect();
 
@@ -307,14 +645,22 @@ impl GitUtils {
             || remote_start <= base_start
             || base_start <= local_start
         {
-            return Err(anyhow::anyhow!(
+            anyhow::bail!(
                 "Invalid conflict markers: ai_start={}, remote_end={}, remote_start={}, base_start={}, local_start={}",
                 ai_start,
                 remote_end,
                 remote_start,
                 base_start,
                 local_start
-            ));
+            );
+        }
+        let nr_conflict_lines = conflict_lines.len();
+        if remote_end + 1 != nr_conflict_lines {
+            anyhow::bail!(
+                "Invalid conflict markers: remote_end + 1 ({}) != nr_conflict_lines ({})",
+                remote_end + 1,
+                nr_conflict_lines
+            );
         }
 
         let local_lines: Vec<&str> = conflict_lines[local_start + 1..base_start].to_vec();
@@ -332,18 +678,53 @@ impl GitUtils {
                 ConflictMarkerMode::Local,
             )?;
 
+        // local_start is the start_line minus the accumulated extra
+        // lines from previous conflicts
+        let local_start = start_line - offsets.local;
+        // local_end is local_start plus the number of local code lines
+        let local_end = local_start + local_lines.len();
+        // Calculate the number of lines in the conflict that are NOT local code
+        // These are the markers and the base/remote sections
+        offsets.local += nr_conflict_lines - local_lines.len();
+
+        // Calculate base and remote offsets
+        let base_start = start_line - offsets.base;
+        let base_end = base_start + base_lines.len();
+        offsets.base += nr_conflict_lines - base_lines.len();
+        let remote_start = start_line - offsets.remote;
+        let remote_end = remote_start + remote_lines.len();
+        offsets.remote += nr_conflict_lines - remote_lines.len();
+
+        let conflict_code = local_lines.join("");
+
+        let base = base_lines.join("");
+        let remote = remote_lines.join("");
+        let conflict_patch = Self::create_diff_from_separated(
+            &head_context,
+            &tail_context,
+            &base,
+            &remote,
+            self.context_lines.patch_context_lines,
+        );
+        let conflict_raw_patch = Some(ConflictResolver::create_diff(&base, &remote, u32::MAX));
+
         Ok(Conflict {
-            file_path: file_path.to_string(),
-            local: local_lines.join(""),
-            base: base_lines.join(""),
-            remote: remote_lines.join(""),
+            conflict_code,
+            conflict_patch,
+            conflict_raw_patch,
             head_context,
             tail_context,
             start_line,
-            remote_end, // append new AI results at the end
+            nr_conflict_lines, // append new AI results at the end
+            local_start,
+            local_end,
+            base_start,
+            base_end,
+            remote_start,
+            remote_end,
             nr_head_context_lines,
             nr_tail_context_lines,
-            marker_size,
+            ..Default::default()
         })
     }
 
@@ -409,51 +790,100 @@ impl GitUtils {
         Self::create_marker('>', size)
     }
 
-    fn remove_conflict_markers(
-        content_lines: Vec<&str>,
+    fn remove_conflict_markers<'a>(
+        content_lines: &[&'a str],
         marker_size: usize,
         mode: ConflictMarkerMode,
-    ) -> Result<Vec<&str>> {
-        let mut skip_lines = false;
+    ) -> Result<Vec<&'a str>> {
+        let content_str = content_lines.join("");
+        let re = Self::create_conflict_regex(marker_size)?;
+
+        let mut skip_ranges = Vec::new();
+        let mut current_byte = 0;
+        let mut current_line = 0;
+
+        for cap in re.captures_iter(&content_str) {
+            let m = cap.get(0).unwrap();
+            while current_byte < m.start() && current_line < content_lines.len() {
+                current_byte += content_lines[current_line].len();
+                current_line += 1;
+            }
+            let start_line = current_line;
+
+            while current_byte < m.end() && current_line < content_lines.len() {
+                current_byte += content_lines[current_line].len();
+                current_line += 1;
+            }
+            let end_line = current_line;
+
+            skip_ranges.push(start_line..end_line);
+        }
+
         let mut in_region = false;
+        let local_marker = Self::create_local_marker(marker_size);
+        let base_marker = Self::create_base_marker(marker_size);
+        let remote_marker = Self::create_remote_marker(marker_size);
+        let ai_marker = Self::create_ai_marker(marker_size);
+        let end_marker = Self::create_end_marker(marker_size);
+
+        let is_marker = |line: &str, marker: &str| -> bool {
+            line.starts_with(marker)
+                && (line.len() == marker_size
+                    || line.as_bytes()[marker_size] == b'\n'
+                    || line.as_bytes()[marker_size] == b' ')
+        };
+
+        let mut range_idx = 0;
+
         let result: Vec<&str> = content_lines
-            .into_iter()
-            .filter(|line| {
-                if line.starts_with(&Self::create_local_marker(marker_size)) {
-                    in_region = mode == ConflictMarkerMode::Local;
-                    skip_lines = true;
-                    return false;
-                } else if line.starts_with(&Self::create_base_marker(marker_size)) {
-                    in_region = mode == ConflictMarkerMode::Base;
-                    return false;
-                } else if line.starts_with(&Self::create_remote_marker(marker_size)) {
-                    in_region = mode == ConflictMarkerMode::Remote;
-                    return false;
-                } else if line.starts_with(&Self::create_ai_marker(marker_size)) {
-                    in_region = false;
-                    return false;
-                } else if line.starts_with(&Self::create_end_marker(marker_size)) {
-                    skip_lines = false;
-                    in_region = false;
-                    return false;
+            .iter()
+            .enumerate()
+            .filter(|(i, line)| {
+                let i = *i;
+                while range_idx < skip_ranges.len() && i >= skip_ranges[range_idx].end {
+                    range_idx += 1;
                 }
-                !skip_lines || in_region
+
+                let skip_lines =
+                    range_idx < skip_ranges.len() && skip_ranges[range_idx].contains(&i);
+
+                if skip_lines {
+                    if is_marker(line, &local_marker) {
+                        in_region = mode == ConflictMarkerMode::Local;
+                        return false;
+                    } else if is_marker(line, &base_marker) {
+                        in_region = mode == ConflictMarkerMode::Base;
+                        return false;
+                    } else if is_marker(line, &remote_marker) {
+                        in_region = mode == ConflictMarkerMode::Remote;
+                        return false;
+                    } else if is_marker(line, &ai_marker) || is_marker(line, &end_marker) {
+                        in_region = false;
+                        return false;
+                    }
+                    in_region
+                } else {
+                    true
+                }
             })
+            .map(|(_, line)| *line)
             .collect();
 
         // Check for nested conflict markers
+        let result_str = result.join("");
         let re = Regex::new(&format!(
-            r"^(<|>|=|\||\&){{{},}}",
+            r"(?ms)^<{{{},}}.*?^={{{},}}.*?^>{{{},}}",
+            Self::DEFAULT_MARKER_SIZE,
+            Self::DEFAULT_MARKER_SIZE,
             Self::DEFAULT_MARKER_SIZE,
         ))
         .unwrap();
-        let has_nested_markers = result.iter().any(|line| re.is_match(line));
+        let has_nested_markers = re.is_match(&result_str);
 
         if has_nested_markers {
-            Err(anyhow::anyhow!("Nested conflict markers found in file"))
-        } else {
-            Ok(result)
+            log::error!("Nested conflict markers found in file");
         }
+        Ok(result)
     }
 
     /// Apply resolved conflicts back to the repository
@@ -462,14 +892,18 @@ impl GitUtils {
 
         for conflict in conflicts.iter().rev() {
             println!(
-                "Applying resolved conflict for: {}:{} - {}",
-                conflict.conflict.file_path, conflict.conflict.start_line, conflict.model
+                "Applying resolved conflict for: {}:{}->{} - {}",
+                conflict.conflict.file_path,
+                conflict.conflict.start_line,
+                conflict.conflict.local_start,
+                conflict.model
             );
+            assert!(conflict.conflict.commit_type == CommitType::Conflict);
 
             // Read the file
             let path =
                 Path::new(self.git_root.as_ref().unwrap()).join(&conflict.conflict.file_path);
-            let mut content = fs::read_to_string(&path)
+            let content = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read file: {}", conflict.conflict.file_path))?;
             // Split content into lines
             let mut lines: Vec<String> = content
@@ -478,8 +912,8 @@ impl GitUtils {
                 .collect();
 
             // Calculate the line where we want to insert the resolved content
-            //print startline and remote start
-            let insert_line = conflict.conflict.start_line + conflict.conflict.remote_end - 1;
+            let insert_line =
+                conflict.conflict.start_line + conflict.conflict.nr_conflict_lines - 1;
 
             // Get the marker size for this file from gitattributes
             let marker_size = conflict.conflict.marker_size;
@@ -510,17 +944,15 @@ impl GitUtils {
             lines.insert(insert_line, marker);
             let resolved_lines: Vec<String> = conflict
                 .resolved_version
-                .lines()
+                .split_inclusive('\n')
                 .map(|s| s.to_string())
                 .collect();
             for (i, line) in resolved_lines.iter().enumerate() {
-                lines.insert(insert_line + 1 + i, format!("{}\n", line));
+                lines.insert(insert_line + 1 + i, line.to_string());
             }
 
-            content = lines.join("");
-
             // Write back to file
-            fs::write(&path, content).with_context(|| {
+            fs::write(&path, lines.join("")).with_context(|| {
                 format!("Failed to write file: {}", conflict.conflict.file_path)
             })?;
         }
@@ -533,11 +965,19 @@ impl GitUtils {
 
     /// Apply vibe resolution - fully resolve conflicts and update git index
     pub fn apply_vibe_resolution(
-        &self,
+        &mut self,
         conflicts: &[Conflict],
         resolved_conflicts: &[ResolvedConflict],
-    ) -> Result<()> {
+        retry_files: &HashSet<String>,
+    ) -> Result<bool> {
         let resolved_conflicts = Self::deduplicate_conflicts_vibe(resolved_conflicts);
+
+        // if true {
+        //     // if self.context_lines.extra_conflict_lines == 0 {
+        //     //     resolved_conflicts.pop();
+        //     // }
+        //     resolved_conflicts.pop();
+        // }
 
         // Group conflicts by file
         let mut conflicts_by_file = std::collections::HashMap::new();
@@ -548,177 +988,203 @@ impl GitUtils {
                 .push(conflict);
         }
 
-        let mut unresolved_files = false;
+        let mut needs_retry = false;
+        let mut recoverable = true;
+        let mut assisted = false;
+
         // Process each file
         for (file_path, file_conflicts) in &conflicts_by_file {
+            if self.retries > 0 && retry_files.contains(*file_path) {
+                println!("Will retry file: {}", file_path);
+                needs_retry = true;
+                continue;
+            }
             println!("Processing file: {}", file_path);
 
-            // Read the file
-            let path = Path::new(self.git_root.as_ref().unwrap()).join(file_path);
-            let content = fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read file: {}", file_path))?;
+            // Sort conflicts by start line (ascending)
+            let mut sorted_conflicts: Vec<&Conflict> = file_conflicts.to_vec();
+            sorted_conflicts.sort_by_key(|c| c.local_start);
 
-            // Split content into lines
-            let mut lines: Vec<String> = content
+            let updated_content =
+                self.apply_vibe_resolution_to_file(&sorted_conflicts, &resolved_conflicts)?;
+
+            if let Some(content) = updated_content {
+                // Write back to file
+                let path = Path::new(self.git_root.as_ref().unwrap()).join(file_path);
+
+                fs::write(&path, content.join(""))
+                    .with_context(|| format!("Failed to write file: {}", file_path))?;
+                self.git_update_index(Some(file_path))?;
+                assisted = true;
+            } else {
+                needs_retry = true;
+                if !retry_files.contains(*file_path) {
+                    recoverable = false;
+                }
+            }
+        }
+
+        // Add Assisted-by line to merge message
+        if assisted {
+            self.update_merge_message()?;
+        }
+
+        if needs_retry {
+            if recoverable && self.can_retry() {
+                return Ok(false);
+            } else {
+                return Err(anyhow::anyhow!("Incomplete conflict resolution"));
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Apply vibe resolution using conflict markers
+    fn apply_vibe_resolution_to_file(
+        &self,
+        sorted_conflicts: &[&Conflict],
+        resolved_conflicts: &[ResolvedConflict],
+    ) -> Result<Option<Vec<String>>> {
+        // Split content into lines
+        let mut lines: Vec<String> = sorted_conflicts[0].merged_local_lines.as_ref().to_vec();
+
+        // Process conflicts in reverse order to maintain correct line numbers
+        for conflict in sorted_conflicts.iter().rev() {
+            let resolved_conflict = resolved_conflicts.iter().find(|r| {
+                r.conflict.file_path == conflict.file_path
+                    && r.conflict.local_start == conflict.local_start
+            });
+
+            if resolved_conflict.is_none() {
+                match conflict.commit_type {
+                    CommitType::Clean => {
+                        log::warn!(
+                            "No resolved conflict found for Clean hunk: {}:{}->{}, skipping",
+                            conflict.file_path,
+                            conflict.start_line,
+                            conflict.local_start
+                        );
+                        continue;
+                    }
+                    _ => {
+                        log::error!(
+                            "No resolved conflict found for: {}:{}->{}",
+                            conflict.file_path,
+                            conflict.start_line,
+                            conflict.local_start
+                        );
+                        return Ok(None);
+                    }
+                }
+            }
+
+            let resolved_conflict = resolved_conflict.unwrap();
+
+            println!(
+                "Found vibe resolution for: {}:{}->{}",
+                conflict.file_path, conflict.start_line, conflict.local_start
+            );
+
+            // Replace the entire conflict with the resolved version
+            let resolved_lines: Vec<String> = resolved_conflict
+                .resolved_version
                 .split_inclusive('\n')
                 .map(|s| s.to_string())
                 .collect();
 
-            // Sort conflicts by start line (ascending)
-            let mut sorted_conflicts: Vec<_> = file_conflicts.iter().collect();
-            sorted_conflicts.sort_by_key(|c| c.start_line);
-
-            // Process conflicts in reverse order to maintain correct line numbers
-            for conflict in sorted_conflicts.iter().rev() {
-                let resolved_conflict = resolved_conflicts
-                    .iter()
-                    .find(|rc| rc.conflict == ***conflict);
-                if resolved_conflict.is_none() {
-                    unresolved_files = true;
-                    continue;
-                }
-                let conflict = resolved_conflict.unwrap();
-                println!(
-                    "Applying vibe resolution for: {}:{}",
-                    conflict.conflict.file_path, conflict.conflict.start_line
-                );
-
-                // Find the conflict markers
-                let end_marker = Self::create_end_marker(conflict.conflict.marker_size);
-
-                // Find the start and end of the conflict
-                let start_line = conflict.conflict.start_line - 1; // Convert to 0-based index
-                let mut end_line = start_line;
-
-                // Find the end marker
-                for (i, line) in lines[start_line..].iter().enumerate() {
-                    if line.starts_with(&end_marker) {
-                        end_line = start_line + i;
-                        break;
-                    }
-                }
-
-                // Replace the entire conflict with the resolved version
-                let resolved_lines: Vec<String> = conflict
-                    .resolved_version
-                    .lines()
-                    .map(|s| s.to_string() + "\n")
-                    .collect();
-
-                // Replace the conflict
-                lines.splice(start_line..=end_line, resolved_lines);
-            }
-
-            // Write back to file
-            let updated_content = lines.join("");
-            fs::write(&path, updated_content)
-                .with_context(|| format!("Failed to write file: {}", file_path))?;
+            // Replace the conflict
+            lines.splice(conflict.local_start..conflict.local_end, resolved_lines);
         }
 
-        // Add Assisted-by line to merge message
-        self.update_merge_message()?;
-
-        // Update git index if all conflicts are resolved
-        if !unresolved_files {
-            self.git_update_index()?;
-        } else {
-            // If there are unresolved files, the index was not updated
-            return Err(anyhow::anyhow!("Unresolved conflicts detected"));
-        }
-
-        Ok(())
+        Ok(Some(lines))
     }
 
     /// Continue the current cherry-pick, rebase, revert, or merge operation
-    pub fn continue_operation(&self, no_conflicts: bool) -> Result<bool> {
-        // Check if we're in a cherry-pick, rebase, revert, or merge
+    pub fn continue_operation(&mut self, context_lines: &ContextLines) -> Result<bool> {
         let git_dir = self.git_dir.as_ref().unwrap();
 
-        // Find the most recent operation HEAD file
+        // Check if we're in a cherry-pick, rebase, revert, or merge
         let operation = match self.find_operation_head(git_dir)? {
             Some(op) => op,
             None => return Ok(false),
         };
 
-        if no_conflicts {
-            // there can be no conflicts but deleted files to add
-            self.git_update_index()?;
-        }
+        // Restore context lines before continuing
+        self.restore_context_lines(context_lines);
+
+        // Always delete unmerged files if any before continuing
+        self.git_add_delete_unmerged()?;
 
         // Function to commit and continue operation
-        let commit_and_continue = |operation: &OperationHead| -> Result<bool> {
-            if operation.command == "rebase" {
-                // Commit the changes
-                println!("Committing changes");
-                let output = GitCommand::new("git")
-                    .args(["commit", "--no-edit"])
-                    .output()
-                    .context("Failed to execute git commit --no-edit")?;
+        if operation.command == "rebase" {
+            // Commit the changes
+            println!("Committing changes");
+            let output = GitCommand::new("git")
+                .args(["commit", "--no-edit"])
+                .output()
+                .context("Failed to execute git commit --no-edit")?;
 
-                if !output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    if !stdout.contains("nothing to commit")
-                        && !stdout.contains("nothing added to commit")
-                    {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        return Err(anyhow::anyhow!("Git commit --no-edit failed: {}", stderr));
-                    }
+            if !output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if !stdout.contains("nothing to commit")
+                    && !stdout.contains("nothing added to commit")
+                {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(anyhow::anyhow!("Git commit --no-edit failed: {}", stderr));
                 }
             }
+        }
 
-            let mut subcmd = "--continue";
-            loop {
-                let before_head = std::fs::read_to_string(&operation.path)
+        let mut subcmd = "--continue";
+        loop {
+            let before_head = std::fs::read_to_string(&operation.path)
+                .with_context(|| format!("Failed to read {}", operation.file))?
+                .trim()
+                .to_string();
+            println!("Executing git {} {}", operation.command, subcmd);
+            let output = GitCommand::new("git")
+                .args(vec![&operation.command, subcmd])
+                .args(if operation.command != "rebase" {
+                    vec!["--no-edit"]
+                } else {
+                    vec![]
+                })
+                .output()
+                .context(format!(
+                    "Failed to execute git {} --continue",
+                    operation.command
+                ))?;
+
+            if !output.status.success() {
+                if String::from_utf8_lossy(&output.stderr).contains("git commit --allow-empty") {
+                    subcmd = "--skip";
+                    continue;
+                }
+
+                if !output.stderr.is_empty() {
+                    print!("{}", String::from_utf8_lossy(&output.stderr));
+                }
+
+                let after_head = std::fs::read_to_string(&operation.path)
                     .with_context(|| format!("Failed to read {}", operation.file))?
                     .trim()
                     .to_string();
-                println!("Executing git {} {}", operation.command, subcmd);
-                let output = GitCommand::new("git")
-                    .args(vec![&operation.command, subcmd])
-                    .args(if operation.command != "rebase" {
-                        vec!["--no-edit"]
-                    } else {
-                        vec![]
-                    })
-                    .output()
-                    .context(format!(
-                        "Failed to execute git {} --continue",
-                        operation.command
-                    ))?;
 
-                if !output.status.success() {
-                    if String::from_utf8_lossy(&output.stderr).contains("git commit --allow-empty")
-                    {
-                        subcmd = "--skip";
-                        continue;
-                    }
+                log::debug!(
+                    "commit after_head: {} before_head: {}",
+                    after_head,
+                    before_head
+                );
 
-                    if !output.stderr.is_empty() {
-                        print!("{}", String::from_utf8_lossy(&output.stderr));
-                    }
-
-                    let after_head = std::fs::read_to_string(&operation.path)
-                        .with_context(|| format!("Failed to read {}", operation.file))?
-                        .trim()
-                        .to_string();
-
-                    log::debug!(
-                        "commit after_head: {} before_head: {}",
-                        after_head,
-                        before_head
-                    );
-
-                    // If operation --continue fails, retry synthmerge --vibe --continue
-                    return Ok(after_head != before_head || subcmd == "--skip");
-                }
-
-                break;
+                // If operation --continue fails, retry synthmerge --vibe --continue
+                return Ok(after_head != before_head || subcmd == "--skip");
             }
 
-            Ok(false)
-        };
+            break;
+        }
 
-        commit_and_continue(&operation)
+        Ok(false)
     }
 
     pub fn deduplicate_conflicts_vibe(conflicts: &[ResolvedConflict]) -> Vec<ResolvedConflict> {
@@ -734,11 +1200,11 @@ impl GitUtils {
         use std::collections::HashMap;
         let mut map: HashMap<(String, usize, &str), Vec<&ResolvedConflict>> = HashMap::new();
 
-        // Group conflicts by resolved_version, start_line and file_path
+        // Group conflicts by resolved_version, local_start and file_path
         for conflict in conflicts {
             map.entry((
                 conflict.resolved_version.clone(),
-                conflict.conflict.start_line,
+                conflict.conflict.local_start,
                 &conflict.conflict.file_path,
             ))
             .or_default()
@@ -795,7 +1261,6 @@ impl GitUtils {
 
         // Sort by number of models that agree on the resolved conflict (descending)
         // When equal, maintain original order
-        let mut ordered_result = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
         // First pass: collect all unique resolved conflicts with their original order positions
@@ -803,7 +1268,7 @@ impl GitUtils {
         for original in conflicts {
             let key = (
                 &original.resolved_version,
-                original.conflict.start_line,
+                original.conflict.local_start,
                 &original.conflict.file_path,
             );
             if seen.insert(key) {
@@ -812,7 +1277,7 @@ impl GitUtils {
                     .position(|r| {
                         (
                             &r.resolved_version,
-                            r.conflict.start_line,
+                            r.conflict.local_start,
                             &r.conflict.file_path,
                         ) == key
                     })
@@ -821,7 +1286,7 @@ impl GitUtils {
                 unique_conflicts.push((
                     result[pos].resolved_version.clone(),
                     &result[pos].conflict.file_path,
-                    result[pos].conflict.start_line,
+                    result[pos].conflict.local_start,
                     num_models,
                     result[pos].endpoint,
                 ));
@@ -838,20 +1303,20 @@ impl GitUtils {
         });
 
         // Build the final ordered result
-        for (resolved_version, start_line, file_path, _, _) in unique_conflicts {
+        let mut ordered_result = Vec::new();
+        for (resolved_version, local_start, file_path, _, _) in unique_conflicts {
             let pos = result
                 .iter()
                 .position(|r| {
                     (
                         &r.resolved_version,
-                        r.conflict.start_line,
+                        r.conflict.local_start,
                         r.conflict.file_path.as_str(),
-                    ) == (&resolved_version, file_path, start_line)
+                    ) == (&resolved_version, file_path, local_start)
                 })
                 .unwrap();
             ordered_result.push(result[pos].clone());
         }
-
         ordered_result
     }
 
@@ -923,20 +1388,11 @@ impl GitUtils {
         combined_names.join(", ")
     }
 
-    /// Update the git index
-    fn git_update_index(&self) -> Result<()> {
-        // First get the current status in v2 format with null-terminated entries
-        let status_output = GitCommand::new("git")
-            .args(["status", "--porcelain=v2", "-z"])
-            .output()
-            .context("Failed to execute git status --porcelain=v2 -z")?;
-
-        if !status_output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Git status --porcelain=v2 failed: {}",
-                String::from_utf8_lossy(&status_output.stderr)
-            ));
-        }
+    /// Delete unmerged files that have been deleted in one side and updated in the other
+    /// Add unmerged files that have been added on one side and updated in theo ther
+    fn git_add_delete_unmerged(&self) -> Result<()> {
+        // Get the current status in v2 format with null-terminated entries
+        let status_output = self.git_status_porcelain_v2(None)?;
 
         // Parse the status output to find files that are unmerged with our state deleted (D)
         // and their state updated (U), or vice versa (U and D)
@@ -959,32 +1415,48 @@ impl GitUtils {
                     // Check if our state is deleted (D) and their state is updated (U)
                     // or our state is updated (U) and their state is deleted (D)
                     // XY format: first char is our state, second is their state
-                    if xy.len() >= 2
-                        && ((xy.chars().nth(0) == Some('D') && xy.chars().nth(1) == Some('U'))
-                            || (xy.chars().nth(0) == Some('U') && xy.chars().nth(1) == Some('D')))
-                    {
-                        let path = parts[10];
-                        // Run git rm on this file
-                        let rm_output = GitCommand::new("git")
-                            .args(["rm", path])
-                            .output()
-                            .context(format!("Failed to execute git rm --cached {}", path))?;
+                    if xy.len() >= 2 {
+                        let c0 = xy.chars().nth(0);
+                        let c1 = xy.chars().nth(1);
+                        if (c0 == Some('D') && c1 == Some('U'))
+                            || (c0 == Some('U') && c1 == Some('D'))
+                        {
+                            let path = parts[10];
+                            // Run git rm on this file
+                            let rm_output = GitCommand::new("git")
+                                .args(["rm", path])
+                                .output()
+                                .context(format!("Failed to execute git rm --cached {}", path))?;
 
-                        if !rm_output.status.success() {
-                            return Err(anyhow::anyhow!(
-                                "Git rm --cached {} failed: {}",
-                                path,
-                                String::from_utf8_lossy(&rm_output.stderr)
-                            ));
+                            if !rm_output.status.success() {
+                                return Err(anyhow::anyhow!(
+                                    "Git rm --cached {} failed: {}",
+                                    path,
+                                    String::from_utf8_lossy(&rm_output.stderr)
+                                ));
+                            }
+                        } else if (c0 == Some('U') && c1 == Some('A'))
+                            || (c0 == Some('A') && c1 == Some('U'))
+                        {
+                            let path = parts[10];
+                            self.git_update_index(Some(path))?;
                         }
                     }
                 }
             }
         }
 
-        // Then add all changes
+        Ok(())
+    }
+
+    /// Update the git index
+    fn git_update_index(&self, file_path: Option<&str>) -> Result<()> {
+        let mut args = vec!["add", "-u"];
+        if let Some(fp) = file_path {
+            args.push(fp);
+        }
         let output = GitCommand::new("git")
-            .args(["add", "-u"])
+            .args(&args)
             .output()
             .context("Failed to execute git add -u")?;
 
@@ -994,7 +1466,11 @@ impl GitUtils {
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
-        println!("Updated git index");
+        if let Some(fp) = file_path {
+            println!("Updated git index for {}", fp);
+        } else {
+            println!("Updated git index");
+        }
         Ok(())
     }
 
@@ -1183,15 +1659,15 @@ impl GitUtils {
     }
 
     /// Extract the patch from a specific commit hash
-    pub fn extract_diff(&self, commit_hash: &str, max_diff_size: u32) -> Result<Option<String>> {
+    pub fn extract_diff(&self, commit_hash: &str, max_context_size: u32) -> Result<Option<String>> {
         let diff = self.git_show_in_dir(commit_hash, None, None)?;
         Ok(diff.and_then(|d| {
-            if d.len() <= max_diff_size.try_into().unwrap() {
+            if d.len() <= max_context_size.try_into().unwrap() {
                 Some(d)
             } else {
                 log::warn!(
-                    "Git diff exceeds max size ({} bytes), skipping",
-                    max_diff_size
+                    "Git diff exceeds max context size ({} bytes), skipping",
+                    max_context_size
                 );
                 None
             }

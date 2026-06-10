@@ -29,6 +29,9 @@ hostname = "0"
 sha2 = "0.10"
 lmdb = "0.8"
 zstd = "0.13"
+memchr = "2.8"
+textdistance = "1.1"
+tempfile = "3.23"
 
 [build-dependencies]
 clap_mangen = "0.2"
