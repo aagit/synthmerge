@@ -77,8 +77,9 @@ def get_data(model_list):
         accuracy_aligned = float(match.group(2))
         accuracy_stripped = float(match.group(3))
         error_rate = float(match.group(4))
-        model_name = model_name.replace("(", "\n(")
-        model_name = model_name.replace("+", "\n+")
+        if model_name.count("(") == 1:
+            model_name = model_name.replace(" (", "\n(")
+        model_name = model_name.replace(" +", "\n+")
         data.append(
             (
                 model_name,
