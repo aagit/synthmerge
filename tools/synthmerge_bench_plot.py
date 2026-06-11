@@ -11,7 +11,7 @@ import os
 # 1. Data Definition
 # Format: List of model names
 models = [
-    "AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Gemini 3.5 Flash",
+    "AI Consensus: Gemini 3.1 Pro (low) + Claude Opus 4.6 (adaptive) + Gemini 3.5 Flash (none)",
     "AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Patchpal",
     "AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal",
     "Claude Opus 4.8 (default adaptive)",

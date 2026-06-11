@@ -317,9 +317,6 @@ This measurement used only new test data never exposed to the model during the f
 
 ### The Numbers
 
-- **Single Model**: ~69% full match accuracy (with the highest ranking model).
-- **Multi-Model**: ~88% chance that at least one correct solution is presented (ignoring whitespaces, model dependent).
-
 ```
 Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Patchpal
   Accuracy: 71.74% (810/1129)
@@ -335,12 +332,12 @@ Model: AI Consensus: Claude Opus 4.6 + Gemini 3.1 Pro + Patchpal
   Error Rate: 0.00% (0/1129)
   Average tokens: 5838.40
 
-Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Gemini 3.5 Flash
-  Accuracy: 70.95% (801/1129)
-  Accuracy (aligned): 74.49% (841/1129)
-  Accuracy (stripped): 77.95% (880/1129)
+Model: AI Consensus: Gemini 3.1 Pro (low) + Claude Opus 4.6 (adaptive) + Gemini 3.5 Flash (none)
+  Accuracy: 70.77% (799/1129)
+  Accuracy (aligned): 74.40% (840/1129)
+  Accuracy (stripped): 77.77% (878/1129)
   Error Rate: 0.00% (0/1129)
-  Average tokens: 6764.86
+  Average tokens: 5847.21
 
 Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6
   Accuracy: 70.68% (798/1129)
@@ -348,6 +345,14 @@ Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6
   Accuracy (stripped): 77.24% (872/1129)
   Error Rate: 0.00% (0/1129)
   Average tokens: 5907.26
+
+Model: Gemini 3.1 Pro (high default) # reasoning_effort: high
+  Accuracy: 69.35% (783/1129)
+  Accuracy (aligned): 73.25% (827/1129)
+  Accuracy (stripped): 76.53% (864/1129)
+  Error Rate: 1.42% (16/1129)
+  Average tokens: 7865.37
+  Average duration: 14.26 s
 
 Model: Claude Opus 4.6 (default adaptive) # thinking adaptive
   Accuracy: 69.35% (783/1129)
@@ -365,23 +370,15 @@ Model: Claude Opus 4.6 (default)
   Average tokens: 5769.34
   Average duration: 3.39 s
 
-Model: Gemini 3.1 Pro (low default) # reasoning_effort: low
-  Accuracy: 68.73% (776/1129)
-  Accuracy (aligned): 72.28% (816/1129)
-  Accuracy (stripped): 75.29% (850/1129)
-  Error Rate: 3.19% (36/1129)
-  Average tokens: 5755.29
-  Average duration: 6.33 s
-
 Model: Gemini 3.1 Pro (medium default) # reasoning_effort: medium
-  Accuracy: 68.02% (768/1129)
-  Accuracy (aligned): 71.74% (810/1129)
-  Accuracy (stripped): 74.93% (846/1129)
-  Error Rate: 2.83% (32/1129)
-  Average tokens: 6341.90
-  Average duration: 9.78 s
+  Accuracy: 68.47% (773/1129)
+  Accuracy (aligned): 72.10% (814/1129)
+  Accuracy (stripped): 75.47% (852/1129)
+  Error Rate: 3.28% (37/1129)
+  Average tokens: 6348.46
+  Average duration: 9.95 s
 
-Model: Gemini 3.5 Flash (high default)
+Model: Gemini 3.5 Flash (high default) # reasoning_effort: high
   Accuracy: 67.76% (765/1129)
   Accuracy (aligned): 74.05% (836/1129)
   Accuracy (stripped): 77.33% (873/1129)
@@ -389,7 +386,15 @@ Model: Gemini 3.5 Flash (high default)
   Average tokens: 8575.48
   Average duration: 15.77 s
 
-Model: Gemini 3.5 Flash (medium default)
+Model: Gemini 3.1 Pro (low default) # reasoning_effort: low
+  Accuracy: 67.67% (764/1129)
+  Accuracy (aligned): 71.39% (806/1129)
+  Accuracy (stripped): 74.84% (845/1129)
+  Error Rate: 3.10% (35/1129)
+  Average tokens: 5759.32
+  Average duration: 6.33 s
+
+Model: Gemini 3.5 Flash (medium default) # reasoning_effort: medium
   Accuracy: 67.05% (757/1129)
   Accuracy (aligned): 73.60% (831/1129)
   Accuracy (stripped): 76.97% (869/1129)
@@ -418,7 +423,7 @@ Model: Claude Opus 4.7 (default adaptive) # thinking adaptive
   Average tokens: 7508.22
   Average duration: 5.87 s
 
-Model: Gemini 3.5 Flash (none default)
+Model: Gemini 3.5 Flash (none default) # reasoning_effort: none
   Accuracy: 66.96% (756/1129)
   Accuracy (aligned): 72.19% (815/1129)
   Accuracy (stripped): 75.29% (850/1129)
@@ -442,7 +447,7 @@ Model: Claude Sonnet 4.0 (default)
   Average tokens: 5730.47
   Average duration: 7.03 s
 
-Model: Gemini 3.5 Flash (low default)
+Model: Gemini 3.5 Flash (low default) # reasoning_effort: low
   Accuracy: 66.61% (752/1129)
   Accuracy (aligned): 73.43% (829/1129)
   Accuracy (stripped): 76.62% (865/1129)
@@ -836,7 +841,7 @@ Model: Qwen3-Coder-30B-A3B-Instruct (default#2) # perplexity beam #2
 
 ## 📊 Benchmark Aggregate Accuracy
 
-**Aggregate accuracy** represents the combined performance when multiple models/variants/beams are used in parallel: a conflict is considered successfully resolved if *at least one* model/variant/beam produces a correct solution.
+**Aggregate accuracy** represents the combined performance when multiple models/variants/beams are used in parallel: a conflict in this case is considered successfully resolved if *at least one* model/variant/beam produces a correct solution.
 
 | Configuration | Accuracy | Accuracy (aligned) | Accuracy (stripped) |
 |---------------|----------|--------------------|---------------------|
