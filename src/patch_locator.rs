@@ -68,8 +68,8 @@ impl Hunk {
 
     /// Returns the base and remote ranges for this hunk, accounting for head/tail context.
     fn get_ranges(&self) -> (usize, usize, usize, usize) {
-        let head = self.get_head_context(None).len();
-        let tail = self.get_tail_context(None).len();
+        let head = self.get_head_context().len();
+        let tail = self.get_tail_context().len();
         let hunk_base_start = self.base_start - 1 + head;
         let hunk_base_end = hunk_base_start + self.base_len - head - tail;
         let hunk_remote_start = self.remote_start - 1 + head;
@@ -152,24 +152,21 @@ impl Hunk {
     /// Returns the head context lines for this hunk.
     /// Head context lines are the leading lines that start with a space (context)
     /// The returned lines are trimmed (leading whitespace stripped).
-    /// If `limit` is Some, only the first `limit` lines are returned.
-    fn get_head_context(&self, limit: Option<usize>) -> Vec<String> {
-        self.__get_context(true, limit)
+    fn get_head_context(&self) -> Vec<String> {
+        self.__get_context(true)
     }
 
     /// Returns the tail context lines for this hunk.
     /// Tail context lines are the trailing lines that start with a space (context)
     /// The returned lines are trimmed (leading whitespace stripped).
-    /// If `limit` is Some, only the last `limit` lines are returned.
-    fn get_tail_context(&self, limit: Option<usize>) -> Vec<String> {
-        self.__get_context(false, limit)
+    fn get_tail_context(&self) -> Vec<String> {
+        self.__get_context(false)
     }
 
     /// Common implementation for get_head_context and get_tail_context.
     /// If `head` is true, collects from the beginning of the body.
     /// If `head` is false, collects from the end of the body.
-    /// If `limit` is Some, only up to `limit` lines are returned.
-    fn __get_context(&self, head: bool, limit: Option<usize>) -> Vec<String> {
+    fn __get_context(&self, head: bool) -> Vec<String> {
         let mut result = Vec::new();
         let body_len = self.body.len();
         if body_len == 0 {
@@ -192,11 +189,6 @@ impl Hunk {
                 break;
             }
         }
-        if let Some(lim) = limit
-            && result.len() > lim
-        {
-            result.drain(..result.len() - lim);
-        }
 
         if !head {
             result.reverse();
@@ -210,8 +202,8 @@ impl Hunk {
     /// # Returns
     /// The patch conflict code string with head and tail context removed.
     pub fn get_patch_conflict(&self) -> &[String] {
-        let head = self.get_head_context(None).len();
-        let tail = self.get_tail_context(None).len();
+        let head = self.get_head_context().len();
+        let tail = self.get_tail_context().len();
 
         assert!(self.body.len() >= head + tail);
         &self.body[head..self.body.len() - tail]
@@ -498,7 +490,6 @@ pub struct PatchLocator {
 impl PatchLocator {
     const MAX_RELOCATION_DISTANCE: f64 = 0.2;
     const MAX_BODY_LEN: usize = 1000;
-    const MAX_CONTEXT: usize = 40;
     const MAX_SCAN: usize = 500;
     const DIFF3_CONTEXT_LINES: usize = 3;
     const EXTEND_CONFLICT_ON_CLEAN_MERGE: bool = true;
@@ -802,8 +793,7 @@ impl PatchLocator {
         if let Some(start) = Self::fast_search(remote.as_bytes(), merged_local_b)
             && let Some(_) = Self::fast_search(base.as_bytes(), local_b)
         {
-            let local_start =
-                bytes_to_lines(merged_local_b, start) + hunk.get_head_context(None).len();
+            let local_start = bytes_to_lines(merged_local_b, start) + hunk.get_head_context().len();
             let local_end = local_start + hunk.get_conflict_remote()?.len();
 
             let extra_conflict_lines = self.context_lines.extra_conflict_lines as usize;
@@ -1106,14 +1096,8 @@ impl PatchLocator {
             assert!(conflict.local_end >= conflict.local_start);
 
             let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
-            let head_context = hunks
-                .first()
-                .unwrap()
-                .get_head_context(Some(Self::MAX_CONTEXT));
-            let tail_context = hunks
-                .last()
-                .unwrap()
-                .get_tail_context(Some(Self::MAX_CONTEXT));
+            let head_context = hunks.first().unwrap().get_head_context();
+            let tail_context = hunks.last().unwrap().get_tail_context();
             // println!("head\n{}", head_context.join(""));
             // println!("tail\n{}", tail_context.join(""));
             let head = head_context.len();
