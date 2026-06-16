@@ -1409,6 +1409,14 @@ impl PatchLocator {
             data,
         )?
         else {
+            log::debug!(
+                "Relocation not found head for both in {} [{},{}): head_context_len={}, scan_range={}",
+                conflict.file_path,
+                conflict.local_start,
+                conflict.local_end,
+                head_context.len(),
+                next_new_local_start - prev_new_local_end
+            );
             return Ok(());
         };
         let mut head_offset = offset + prev_new_local_end;
@@ -1421,6 +1429,14 @@ impl PatchLocator {
             data,
         )?
         else {
+            log::debug!(
+                "Relocation not found tail for both in {} [{},{}): tail_context_len={}, scan_range={}",
+                conflict.file_path,
+                conflict.local_start,
+                conflict.local_end,
+                tail_context.len(),
+                next_new_local_start - prev_new_local_end
+            );
             return Ok(());
         };
         let mut tail_offset = offset + prev_new_local_end;
@@ -1471,6 +1487,14 @@ impl PatchLocator {
             data,
         )?
         else {
+            log::debug!(
+                "Relocation not found head in {} [{},{}): context_len={}, scan_range={}",
+                conflict.file_path,
+                conflict.local_start,
+                conflict.local_end,
+                context.len(),
+                next_new_local_start - prev_new_local_end
+            );
             return Ok(());
         };
         let offset = prev_new_local_end + offset;
@@ -1502,6 +1526,14 @@ impl PatchLocator {
             data,
         )?
         else {
+            log::debug!(
+                "Relocation not found tail in {} [{},{}): context_len={}, scan_range={}",
+                conflict.file_path,
+                conflict.local_start,
+                conflict.local_end,
+                context.len(),
+                next_new_local_start - prev_new_local_end
+            );
             return Ok(());
         };
         let offset = prev_new_local_end + offset;
