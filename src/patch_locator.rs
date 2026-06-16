@@ -1337,12 +1337,6 @@ impl PatchLocator {
                             if distance < local_min_distance {
                                 local_offset = i;
                                 local_min_distance = distance;
-                                // println!(
-                                //     "{distance} {}\nyyyyyyyyyyyyy\n{}\nxxxxxxxxx\n{}",
-                                //     end - i,
-                                //     candidate,
-                                //     head_context_str
-                                // );
                             }
                         }
                         (local_distances, local_min_distance, local_offset)
