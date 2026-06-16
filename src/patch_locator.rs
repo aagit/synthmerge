@@ -1213,16 +1213,11 @@ impl PatchLocator {
     }
 
     fn calc_max_context_distance(&self, conflict: &Conflict, context: &[String]) -> f64 {
-        let context_len = context.len();
-        assert!(context_len >= Self::DIFF3_CONTEXT_LINES);
-        let scaled = 0.25
-            + 0.5 * (context_len - Self::DIFF3_CONTEXT_LINES) as f64
-                / (Self::MAX_CONTEXT - Self::DIFF3_CONTEXT_LINES) as f64;
-        let max_distance = scaled.clamp(0.25, 0.75);
+        assert!(context.len() >= Self::DIFF3_CONTEXT_LINES);
         if conflict.local_start != conflict.local_end {
-            max_distance / 2.0
+            0.75
         } else {
-            max_distance
+            0.9
         }
     }
 
