@@ -624,7 +624,7 @@ impl<'a> ConflictResolver<'a> {
 
     fn raw_patch(raw_patch: &str, file_path: &str) -> String {
         format!(
-            r#"The DIFF for {file_path} that remains to be applied is between {diff_start}{diff_end}.
+            r#"The DIFF for {file_path} is between {diff_start}{diff_end}.
 
 {diff_start}
 {raw_patch}{diff_end}"#,
