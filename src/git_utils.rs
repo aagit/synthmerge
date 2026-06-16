@@ -110,6 +110,7 @@ pub struct GitUtils {
     lmdb_cache: Option<Arc<LmdbCacheImpl>>,
     resolution_mode: ResolutionMode,
     retries: usize,
+    max_retries: usize,
 }
 
 impl GitUtils {
@@ -143,6 +144,7 @@ impl GitUtils {
             lmdb_cache,
             resolution_mode,
             retries,
+            max_retries: retries,
         }
     }
 
@@ -162,6 +164,7 @@ impl GitUtils {
         }
 
         self.retries -= 1;
+        let retry_idx: u32 = (self.max_retries - self.retries).try_into().unwrap();
 
         match self.resolution_mode {
             ResolutionMode::VibeWithMarkers => {
@@ -182,10 +185,14 @@ impl GitUtils {
                 println!(
                     "Retrying resolution with increased --extra-conflict-lines ({} -> {})",
                     self.context_lines.extra_conflict_lines,
-                    self.context_lines.extra_conflict_lines.saturating_add(1)
+                    self.context_lines
+                        .extra_conflict_lines
+                        .saturating_add(retry_idx)
                 );
-                self.context_lines.extra_conflict_lines =
-                    self.context_lines.extra_conflict_lines.saturating_add(1);
+                self.context_lines.extra_conflict_lines = self
+                    .context_lines
+                    .extra_conflict_lines
+                    .saturating_add(retry_idx);
 
                 true
             }
