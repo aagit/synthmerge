@@ -1769,8 +1769,10 @@ impl PatchLocator {
     ) -> Vec<Snippet> {
         conflicts.sort_by_key(|c| c.local_start);
 
-        let cl = &data.context_lines;
-        let extra_lines = (cl.code_context_lines + cl.extra_conflict_lines) as usize;
+        //let cl = &data.context_lines;
+        //let extra_lines = (cl.code_context_lines + cl.extra_conflict_lines) as usize;
+        //let extra_lines = cl.code_context_lines as usize;
+        let extra_lines = 0;
         let max_context_size = data.max_context_size as usize;
         let mut snippets: Vec<Snippet> = Vec::new();
         let mut last_end = 0;
