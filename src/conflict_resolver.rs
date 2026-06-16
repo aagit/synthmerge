@@ -598,7 +598,7 @@ impl<'a> ConflictResolver<'a> {
             .filter(|s| conflict.local_start > s.local_start || conflict.local_end < s.local_end)
             .map(|s| {
                 format!(
-                    "{}\n{}{}",
+                    "\n{}\n{}{}\n",
                     Self::CODE_SNIPPET_START,
                     s.snippet,
                     Self::CODE_SNIPPET_END
