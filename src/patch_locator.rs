@@ -1794,19 +1794,20 @@ impl PatchLocator {
                 };
 
             let mut snippet = String::new();
-            let start = conflict.local_start;
-            let end = conflict.local_end;
-            assert!(start <= end);
-            if start == end {
+            let local_start = conflict.local_start;
+            let local_end = conflict.local_end;
+            assert!(local_start <= local_end);
+            if local_start == local_end {
                 continue;
             }
-            let mut start = start.saturating_sub(extra_lines).max(prev_local_end);
-            let end = end.saturating_add(extra_lines).min(next_local_start);
+            let mut start = local_start.saturating_sub(extra_lines).max(prev_local_end);
+            let end = local_end.saturating_add(extra_lines).min(next_local_start);
             if !snippets.is_empty() {
                 if last_end >= end {
                     continue;
                 }
                 if start <= last_end {
+                    assert!(end >= last_end);
                     start = start.max(last_end);
                     snippet = snippets.pop().unwrap().snippet;
                 }
