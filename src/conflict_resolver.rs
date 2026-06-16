@@ -415,6 +415,15 @@ impl<'a> ConflictResolver<'a> {
             };
 
             let primary = if endpoints[endpoint].primary { 1 } else { 0 };
+
+            // Helper closure for error handling
+            let mut record_error = |model: &str, beam: usize, multi: usize| {
+                *resolver_errors.errors.entry(model.to_string()).or_insert(0) += 1;
+                if beam == 0 && multi == 0 {
+                    recoverable[primary] = true;
+                }
+            };
+
             for (variant, api_response_variant) in result.iter().enumerate() {
                 for (beam, api_response_entry) in api_response_variant.iter().enumerate() {
                     let api_response_entry = match api_response_entry {
@@ -422,7 +431,7 @@ impl<'a> ConflictResolver<'a> {
                         Err(e) => {
                             let model = self.get_model_name(endpoints, endpoint, variant, beam);
                             log::error!("Skipping {} - {}", model, e);
-                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
+                            record_error(&model, 1, 1);
                             continue;
                         }
                     };
@@ -432,10 +441,7 @@ impl<'a> ConflictResolver<'a> {
                         Err(e) => {
                             let model = self.get_model_name(endpoints, endpoint, variant, beam);
                             log::warn!("Skipping {} - {}", model, e);
-                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                            if beam == 0 {
-                                recoverable[primary] = true;
-                            }
+                            record_error(&model, beam, 0);
                             continue;
                         }
                     };
@@ -468,10 +474,7 @@ impl<'a> ConflictResolver<'a> {
                                 1,
                             );
                             log::info!("HeadContextDiff:\n{}", diff);
-                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                            if beam == 0 && multi == 0 {
-                                recoverable[primary] = true;
-                            }
+                            record_error(&model, beam, multi);
                             continue;
                         }
                         let leading_tail_context = if !conflict.head_context.is_empty() {
@@ -500,10 +503,7 @@ impl<'a> ConflictResolver<'a> {
                                 1,
                             );
                             log::info!("TailContextDiff:\n{}", diff);
-                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                            if beam == 0 && multi == 0 {
-                                recoverable[primary] = true;
-                            }
+                            record_error(&model, beam, multi);
                             continue;
                         }
                         //reduce resolved to the range between head_context and tail_context
@@ -514,10 +514,7 @@ impl<'a> ConflictResolver<'a> {
                                 model
                             );
                             log::trace!("ResolvedContent:\n{}", resolved_string);
-                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                            if beam == 0 && multi == 0 {
-                                recoverable[primary] = true;
-                            }
+                            record_error(&model, beam, multi);
                             continue;
                         };
 
@@ -531,10 +528,7 @@ impl<'a> ConflictResolver<'a> {
                                 model
                             );
                             log::trace!("ResolvedContent:\n{}", resolved_version);
-                            *resolver_errors.errors.entry(model).or_insert(0) += 1;
-                            if beam == 0 && multi == 0 {
-                                recoverable[primary] = true;
-                            }
+                            record_error(&model, beam, multi);
                             continue;
                         }
 
