@@ -926,7 +926,9 @@ impl PatchLocator {
                 true,
             );
 
-            Self::log_conflict_hunk("Conflict candidate", conflict, hunk);
+            if log::log_enabled!(log::Level::Trace) {
+                Self::log_conflict_hunk("Conflict candidate", conflict, hunk);
+            }
 
             // Check remote range overlap: [conflict.remote_start,
             // conflict.remote_end) vs [hunk_remote_start,
