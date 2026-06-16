@@ -1252,7 +1252,7 @@ impl GitUtils {
         let mut seen = std::collections::HashSet::new();
 
         // First pass: collect all unique resolved conflicts with their original order positions
-        let mut unique_conflicts: Vec<(String, &str, usize, usize, usize)> = Vec::new();
+        let mut unique_conflicts: Vec<(String, &str, usize, usize, usize, bool)> = Vec::new();
         for original in conflicts {
             let key = (
                 &original.resolved_version,
@@ -1271,28 +1271,45 @@ impl GitUtils {
                     })
                     .unwrap();
                 let num_models = result[pos].deduplicated_conflicts.len();
+
+                // Calculate difference between resolved_version and merged_local_lines for Clean commits
+                let adapted = if result[pos].conflict.commit_type.is_clean() {
+                    let merged_lines = &result[pos].conflict.merged_local_lines;
+                    let local_start = result[pos].conflict.local_start;
+                    let local_end = result[pos].conflict.local_end;
+                    let expected = merged_lines[local_start..local_end].join("");
+                    let resolved = &result[pos].resolved_version;
+
+                    expected != *resolved
+                } else {
+                    true
+                };
+
                 unique_conflicts.push((
                     result[pos].resolved_version.clone(),
                     &result[pos].conflict.file_path,
                     result[pos].conflict.local_start,
                     num_models,
                     result[pos].endpoint,
+                    adapted,
                 ));
             }
         }
 
-        // Sort by file, line, number of models (descending) and
-        // finally with the original "endpoint" order
+        // Sort by file, line, number of models (descending),
+        // difference score for Clean (descending), and finally with
+        // the original "endpoint" order
         unique_conflicts.sort_by(|a, b| {
             a.1.cmp(b.1)
                 .then(a.2.cmp(&b.2))
                 .then(b.3.cmp(&a.3))
+                .then(b.5.cmp(&a.5))
                 .then(a.4.cmp(&b.4))
         });
 
         // Build the final ordered result
         let mut ordered_result = Vec::new();
-        for (resolved_version, local_start, file_path, _, _) in unique_conflicts {
+        for (resolved_version, local_start, file_path, _, _, _) in unique_conflicts {
             let pos = result
                 .iter()
                 .position(|r| {
