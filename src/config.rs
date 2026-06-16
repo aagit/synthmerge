@@ -33,6 +33,8 @@ pub struct EndpointConfig {
     pub headers: Option<EndpointHeaders>,
     #[serde(default)]
     pub primary: bool,
+    #[serde(default = "default_use_backticks")]
+    pub use_backticks: bool,
     #[serde(flatten)]
     pub config: EndpointTypeConfig,
 }
@@ -51,6 +53,10 @@ fn default_delay() -> u64 {
 
 fn default_max_delay() -> u64 {
     600000
+}
+
+fn default_use_backticks() -> bool {
+    true
 }
 
 macro_rules! check_conflicting_context_fields {

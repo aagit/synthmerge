@@ -103,7 +103,6 @@ pub struct Snippet {
 pub struct ConflictResolver<'a> {
     config: &'a Config,
     git_diff: Option<String>,
-    training: String,
     bench: bool,
     start_regex: Regex,
     end_regex: Regex,
@@ -111,6 +110,7 @@ pub struct ConflictResolver<'a> {
 }
 
 impl<'a> ConflictResolver<'a> {
+    const BACKTICK: &'static str = "```";
     const DIFF_START: &'static str = "<|diff|>";
     const DIFF_END: &'static str = "<|/diff|>";
     const PATCH_START: &'static str = "<|patch|>";
@@ -141,8 +141,7 @@ impl<'a> ConflictResolver<'a> {
         }
         ConflictResolver {
             config,
-            git_diff: Self::git_diff(git_diff),
-            training: Self::create_training(),
+            git_diff,
             bench,
             start_regex: Regex::new(Self::REGEXP_PATCHED_CODE_START).unwrap(),
             end_regex: Regex::new(Self::REGEXP_PATCHED_CODE_END).unwrap(),
@@ -215,8 +214,6 @@ impl<'a> ConflictResolver<'a> {
                 "{}{}{}",
                 conflict.head_context, conflict.conflict_code, conflict.tail_context
             );
-            let message = self.create_message(&patch, &code);
-            let git_diff = self.create_git_diff(conflict);
 
             // Try to resolve with all endpoints in parallel
             let mut futures = Vec::new();
@@ -226,13 +223,17 @@ impl<'a> ConflictResolver<'a> {
                 }
                 let client = ApiClient::new(endpoint.clone(), self.lmdb_cache.clone());
                 let name = endpoint.name.clone();
+                let use_backticks = endpoint.use_backticks;
+                let message = self.create_message(&patch, &code, use_backticks);
+                let git_diff = self.create_git_diff(conflict, use_backticks);
+                let training = Self::create_training(use_backticks);
                 let api_request = ApiRequest {
                     prompt: prompt.clone(),
-                    training: self.training.clone(),
-                    message: message.clone(),
+                    training,
+                    message,
                     patch: patch.clone(),
                     code: code.clone(),
-                    git_diff: git_diff.clone(),
+                    git_diff,
                 };
                 let handle = tokio::spawn(async move {
                     let result = client.query(&api_request).await;
@@ -569,20 +570,29 @@ impl<'a> ConflictResolver<'a> {
     }
 
     /// Create a prompt for the AI to resolve the conflict
-    fn git_diff(git_diff: Option<String>) -> Option<String> {
+    fn git_diff(git_diff: Option<String>, use_backticks: bool) -> Option<String> {
         git_diff.map(|s| {
-            format!(
-                r#"The PATCH originates from the DIFF between {diff_start}{diff_end}.
-
-{diff_start}
+            let mut diff_block = format!(
+                r#"{diff_start}
 {s}{diff_end}"#,
                 diff_start = Self::DIFF_START,
                 diff_end = Self::DIFF_END,
+            );
+            if use_backticks {
+                diff_block = format!("{}\n{}\n{}", Self::BACKTICK, diff_block, Self::BACKTICK);
+            }
+            format!(
+                r#"The PATCH originates from the DIFF between {diff_start}{diff_end}.
+
+{diff_block}"#,
+                diff_start = Self::DIFF_START,
+                diff_end = Self::DIFF_END,
+                diff_block = diff_block,
             )
         })
     }
 
-    fn code_snippets(conflict: &Conflict) -> Option<String> {
+    fn code_snippets(conflict: &Conflict, use_backticks: bool) -> Option<String> {
         let code_snippets = &conflict.code_snippets;
         if code_snippets.is_empty() {
             return None;
@@ -604,46 +614,73 @@ impl<'a> ConflictResolver<'a> {
         }
         let snippets_with_wrappers = snippets_with_wrappers.join("\n");
 
-        Some(format!(
-            r#"Review the other conflicting CODE SNIPPETS in {file_path} between {code_snippets_start}{code_snippets_end}.
-
-{code_snippets_start}
+        let mut code_snippets_block = format!(
+            r#"{code_snippets_start}
 {snippets_with_wrappers}
 {code_snippets_end}"#,
             code_snippets_start = Self::CODE_SNIPPETS_START,
             code_snippets_end = Self::CODE_SNIPPETS_END,
+        );
+        if use_backticks {
+            code_snippets_block = format!(
+                "{}\n{}\n{}",
+                Self::BACKTICK,
+                code_snippets_block,
+                Self::BACKTICK
+            );
+        }
+
+        Some(format!(
+            r#"Review the other conflicting CODE SNIPPETS in {file_path} between {code_snippets_start}{code_snippets_end}.
+
+{code_snippets_block}"#,
+            code_snippets_start = Self::CODE_SNIPPETS_START,
+            code_snippets_end = Self::CODE_SNIPPETS_END,
             file_path = conflict.file_path,
+            code_snippets_block = code_snippets_block,
         ))
     }
 
-    fn raw_patch(raw_patch: &str, file_path: &str) -> String {
-        format!(
-            r#"The DIFF for {file_path} is between {diff_start}{diff_end}.
-
-{diff_start}
+    fn raw_patch(raw_patch: &str, file_path: &str, use_backticks: bool) -> String {
+        let mut diff_block = format!(
+            r#"{diff_start}
 {raw_patch}{diff_end}"#,
             diff_start = Self::DIFF_START,
             diff_end = Self::DIFF_END,
+        );
+        if use_backticks {
+            diff_block = format!("{}\n{}\n{}", Self::BACKTICK, diff_block, Self::BACKTICK);
+        }
+        format!(
+            r#"The DIFF for {file_path} is between {diff_start}{diff_end}.
+
+{diff_block}"#,
+            diff_start = Self::DIFF_START,
+            diff_end = Self::DIFF_END,
+            diff_block = diff_block,
         )
     }
 
-    fn create_git_diff(&self, conflict: &Conflict) -> Option<String> {
+    fn create_git_diff(&self, conflict: &Conflict, use_backticks: bool) -> Option<String> {
         let mut parts = Vec::new();
         let mut has_diff = false;
         if let Some(diff) = &self.git_diff
             && diff.contains(&conflict.file_path)
         {
-            parts.push(diff.clone());
-            has_diff = true;
+            if let Some(formatted_diff) = Self::git_diff(Some(diff.clone()), use_backticks) {
+                parts.push(formatted_diff);
+                has_diff = true;
+            }
         }
         if conflict.commit_type == CommitType::ConflictAndClean {
             parts.push(Self::raw_patch(
                 conflict.conflict_raw_patch.as_ref().unwrap(),
                 &conflict.file_path,
+                use_backticks,
             ));
             has_diff = true;
         }
-        if let Some(snippets) = Self::code_snippets(conflict) {
+        if let Some(snippets) = Self::code_snippets(conflict, use_backticks) {
             parts.push(snippets);
             if has_diff {
                 parts.push("Apply only the adapted PATCH, do not apply other parts of the DIFF to the CODE. The entire DIFF will be applied to all CODE SNIPPETS to produce the final PATCHED CODE SNIPPETS. Adapt the PATCH accordingly so the PATCHED CODE works correctly with the PATCHED CODE SNIPPETS.".to_string());
@@ -703,11 +740,9 @@ FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_
         )
     }
 
-    fn create_training() -> String {
-        format!(
-            r#"Learn from the following training example:
-
-{patch_start}
+    fn create_training(use_backticks: bool) -> String {
+        let mut patch_block = format!(
+            r#"{patch_start}
 @@ -1,7 +1,7 @@
  
  extern const struct feature default_feat;
@@ -717,9 +752,13 @@ FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_
  {{
  	return &default_feat;
  }}
-{patch_end}
+{patch_end}"#,
+            patch_start = Self::PATCH_START,
+            patch_end = Self::PATCH_END,
+        );
 
-{code_start}
+        let mut code_block = format!(
+            r#"{code_start}
 
 extern struct feat feat;
 
@@ -727,9 +766,13 @@ static inline struct feat *get_extra_something(double option, struct device *obj
  {{	
 	return &feat;
 }}
-{code_end}
+{code_end}"#,
+            code_start = Self::CODE_START,
+            code_end = Self::CODE_END,
+        );
 
-{patched_code_start}
+        let mut patched_code_block = format!(
+            r#"{patched_code_start}
 
 extern struct feat feat;
 
@@ -738,28 +781,51 @@ static inline struct feat *get_special_something(double option, struct device *d
 	return &feat;
 }}
 {patched_code_end}"#,
-            patch_start = ConflictResolver::PATCH_START,
-            patch_end = ConflictResolver::PATCH_END,
-            code_start = ConflictResolver::CODE_START,
-            code_end = ConflictResolver::CODE_END,
-            patched_code_start = ConflictResolver::PATCHED_CODE_START,
-            patched_code_end = ConflictResolver::PATCHED_CODE_END,
+            patched_code_start = Self::PATCHED_CODE_START,
+            patched_code_end = Self::PATCHED_CODE_END,
+        );
+
+        if use_backticks {
+            patch_block = format!("{}\n{}\n{}", Self::BACKTICK, patch_block, Self::BACKTICK);
+            code_block = format!("{}\n{}\n{}", Self::BACKTICK, code_block, Self::BACKTICK);
+            patched_code_block = format!(
+                "{}\n{}\n{}",
+                Self::BACKTICK,
+                patched_code_block,
+                Self::BACKTICK
+            );
+        }
+
+        format!(
+            r#"Learn from the following training example:
+
+{}
+
+{}
+
+{}"#,
+            patch_block, code_block, patched_code_block,
         )
     }
 
-    fn create_message(&self, patch: &String, code: &String) -> String {
-        format!(
+    fn create_message(&self, patch: &String, code: &String, use_backticks: bool) -> String {
+        let mut patch_str = format!(
             r#"{patch_start}
-{patch}{patch_end}
-
-{code_start}
-{code}{code_end}
-"#,
+{patch}{patch_end}"#,
             patch_start = Self::PATCH_START,
             patch_end = Self::PATCH_END,
+        );
+        let mut code_str = format!(
+            r#"{code_start}
+{code}{code_end}"#,
             code_start = Self::CODE_START,
             code_end = Self::CODE_END,
-        )
+        );
+        if use_backticks {
+            patch_str = format!("{}\n{}\n{}", Self::BACKTICK, patch_str, Self::BACKTICK);
+            code_str = format!("{}\n{}\n{}", Self::BACKTICK, code_str, Self::BACKTICK);
+        }
+        format!("{}\n\n{}\n", patch_str, code_str)
     }
 
     pub fn create_diff(base: &str, remote: &str, patch_context_lines: u32) -> String {

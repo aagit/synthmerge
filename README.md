@@ -220,6 +220,16 @@ endpoints:
     primary: true
 ```
 
+## 🔤 Markdown Backtick Support
+
+Markdown backtick fences are enabled by default. However, if a specific model gets confused by the superflous fences they can be disabled:
+
+```yaml
+endpoints:
+  - name: "Model without backticks"
+    use_backticks: false
+```
+
 ## 🎨 Emacs Integration
 
 `synthmerge` ships with a modified `smerge-mode` plugin for that provides a visual interface to review and select AI-generated solutions alongside the original conflict [markers](git-conflict-solutions-marker.md).

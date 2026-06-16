@@ -39,6 +39,7 @@ endpoints:
     json:
       model: "gemini-3.5-flash"
       reasoning_effort: "none"
+    #use_backticks: false
 
   - name: "Claude Sonnet 4.5"
     url: "https://api.anthropic.com/v1/messages"
