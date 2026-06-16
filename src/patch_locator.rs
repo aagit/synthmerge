@@ -1375,43 +1375,50 @@ impl PatchLocator {
         tail_context: &[String],
     ) -> Result<()> {
         let max_context_distance = self.calc_max_context_distance(conflict, head_context);
-        let Some((head_distances, offset)) = self.calc_distances(
+        let (head_distances, offset) = match self.calc_distances(
             head_context,
             prev_new_local_end..next_new_local_start,
             (false, false, max_context_distance),
-        )?
-        else {
-            log::debug!(
-                "Relocation not found head for both in {} [{},{}): head_context_len={}, scan_range={}",
-                conflict.file_path,
-                conflict.local_start,
-                conflict.local_end,
-                head_context.len(),
-                next_new_local_start - prev_new_local_end
-            );
-            return Ok(());
+        )? {
+            Some((d, o)) => (Some(d), o),
+            None => {
+                log::debug!(
+                    "Relocation not found head for both in {} [{},{}): head_context_len={}, scan_range={}",
+                    conflict.file_path,
+                    conflict.local_start,
+                    conflict.local_end,
+                    head_context.len(),
+                    next_new_local_start - prev_new_local_end
+                );
+                (None, conflict.local_start - prev_new_local_end)
+            }
         };
         let mut head_offset = offset + prev_new_local_end;
         let max_context_distance = self.calc_max_context_distance(conflict, tail_context);
-        let Some((tail_distances, offset)) = self.calc_distances(
+        let (tail_distances, offset) = match self.calc_distances(
             tail_context,
             prev_new_local_end..next_new_local_start,
             (false, true, max_context_distance),
-        )?
-        else {
-            log::debug!(
-                "Relocation not found tail for both in {} [{},{}): tail_context_len={}, scan_range={}",
-                conflict.file_path,
-                conflict.local_start,
-                conflict.local_end,
-                tail_context.len(),
-                next_new_local_start - prev_new_local_end
-            );
-            return Ok(());
+        )? {
+            Some((d, o)) => (Some(d), o),
+            None => {
+                log::debug!(
+                    "Relocation not found tail for both in {} [{},{}): tail_context_len={}, scan_range={}",
+                    conflict.file_path,
+                    conflict.local_start,
+                    conflict.local_end,
+                    tail_context.len(),
+                    next_new_local_start - prev_new_local_end
+                );
+                (None, conflict.local_end - prev_new_local_end)
+            }
         };
         let mut tail_offset = offset + prev_new_local_end;
         let head_context_len = head_context.len();
-        if head_offset > tail_offset {
+        if let Some(head_distances) = head_distances
+            && let Some(tail_distances) = tail_distances
+            && head_offset > tail_offset
+        {
             let mut min_sum = f64::MAX;
             let mut best_head = 0;
             let mut best_tail = 0;
