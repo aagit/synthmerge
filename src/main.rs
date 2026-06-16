@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
     };
     // Initialize git utilities
     let mut git_utils = GitUtils::new(
-        context_lines.clone(),
+        context_lines,
         args.get_cache_path(),
         args.cache_overwrite,
         resolution_mode,

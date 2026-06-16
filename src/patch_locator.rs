@@ -483,20 +483,16 @@ impl Hunk {
     }
 }
 
-/// Data required for patch locator processing
-pub struct PatchLocatorData {
+pub struct PatchLocator {
+    header_regex: Regex,
     pub local_content: Arc<String>,
     pub merged_local_content: Arc<String>,
     pub merged_local_lines: Arc<Vec<String>>,
     pub clean_diff: Arc<String>,
     pub conflict_diff: Arc<String>,
     pub lmdb_cache: Option<Arc<LmdbCacheImpl>>,
-    pub context_lines: Arc<ContextLines>,
+    pub context_lines: ContextLines,
     pub max_context_size: u32,
-}
-
-pub struct PatchLocator {
-    header_regex: Regex,
 }
 
 impl PatchLocator {
@@ -507,9 +503,28 @@ impl PatchLocator {
     const DIFF3_CONTEXT_LINES: usize = 3;
     const EXTEND_CONFLICT_ON_CLEAN_MERGE: bool = true;
 
-    pub fn new() -> Self {
+    // https://github.com/rust-lang/rust-clippy/issues/1576
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        local_content: Arc<String>,
+        merged_local_content: Arc<String>,
+        merged_local_lines: Arc<Vec<String>>,
+        clean_diff: Arc<String>,
+        conflict_diff: Arc<String>,
+        lmdb_cache: Option<Arc<LmdbCacheImpl>>,
+        context_lines: ContextLines,
+        max_context_size: u32,
+    ) -> Self {
         PatchLocator {
             header_regex: Regex::new(r"^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@").unwrap(),
+            local_content,
+            merged_local_content,
+            merged_local_lines,
+            clean_diff,
+            conflict_diff,
+            lmdb_cache,
+            context_lines,
+            max_context_size,
         }
     }
 
@@ -642,7 +657,6 @@ impl PatchLocator {
         hunk: &Hunk,
         minus_lines: &[String],
         minus_lines_hasher: &Sha256,
-        lmdb_cache: Option<&LmdbCacheImpl>,
     ) -> Result<bool> {
         let mut hasher = minus_lines_hasher.clone();
         hasher.update(Self::MAX_RELOCATION_DISTANCE.to_string());
@@ -652,7 +666,7 @@ impl PatchLocator {
         let hash = hasher.finalize();
         let hash = format!("{:x}", hash);
 
-        if let Some(cache) = lmdb_cache
+        if let Some(cache) = self.lmdb_cache.as_deref()
             && let Some(success) = cache.get_cached_minus_lines(&hash)
         {
             return Ok(success);
@@ -711,7 +725,7 @@ impl PatchLocator {
             false
         };
 
-        if let Some(cache) = lmdb_cache {
+        if let Some(cache) = self.lmdb_cache.as_deref() {
             cache.cache_minus_lines(&hash, success)?;
         }
 
@@ -761,7 +775,6 @@ impl PatchLocator {
         hunk: &Hunk,
         minus_lines: &[String],
         minus_lines_hasher: &Sha256,
-        data: &PatchLocatorData,
     ) -> Result<()> {
         if hunk.body.len() > Self::MAX_BODY_LEN {
             return Ok(());
@@ -777,18 +790,13 @@ impl PatchLocator {
         }
 
         let mut commit_type = CommitType::Clean;
-        if !self.is_conflict(
-            hunk,
-            minus_lines,
-            minus_lines_hasher,
-            data.lmdb_cache.as_deref(),
-        )? {
+        if !self.is_conflict(hunk, minus_lines, minus_lines_hasher)? {
             commit_type = CommitType::CleanDisabled;
         }
 
-        let local = &data.local_content;
+        let local = &self.local_content;
         let local_b = local.as_bytes();
-        let merged_local = &data.merged_local_content;
+        let merged_local = &self.merged_local_content;
         let merged_local_b = merged_local.as_bytes();
 
         if let Some(start) = Self::fast_search(remote.as_bytes(), merged_local_b)
@@ -798,11 +806,11 @@ impl PatchLocator {
                 bytes_to_lines(merged_local_b, start) + hunk.get_head_context(None).len();
             let local_end = local_start + hunk.get_conflict_remote()?.len();
 
-            let extra_conflict_lines = data.context_lines.extra_conflict_lines as usize;
+            let extra_conflict_lines = self.context_lines.extra_conflict_lines as usize;
             let new_local_start = local_start.saturating_sub(extra_conflict_lines);
             let new_local_end = local_end
                 .saturating_add(extra_conflict_lines)
-                .min(data.merged_local_lines.len());
+                .min(self.merged_local_lines.len());
 
             let conflict_code = hunk.get_conflict_base()?.join("");
 
@@ -876,12 +884,7 @@ impl PatchLocator {
         hunk.remote_start = remote_line - local_line + 1;
     }
 
-    fn process_clean_hunks(
-        &self,
-        conflicts: &mut Vec<Conflict>,
-        hunks: Vec<Hunk>,
-        data: &PatchLocatorData,
-    ) -> Result<()> {
+    fn process_clean_hunks(&self, conflicts: &mut Vec<Conflict>, hunks: Vec<Hunk>) -> Result<()> {
         conflicts.sort_by_key(|c| c.local_start);
 
         // Build local snippets
@@ -889,7 +892,7 @@ impl PatchLocator {
         let minus_lines = self.create_minus_lines(conflicts, &mut minus_lines_hasher);
 
         // Split hunks into smaller snippets and flatten them
-        let patch_context_lines = data.context_lines.patch_context_lines as usize;
+        let patch_context_lines = self.context_lines.patch_context_lines as usize;
         let mut splitted_hunks: Vec<Hunk> = Vec::with_capacity(hunks.len());
         for h in hunks {
             splitted_hunks.extend(h.split(1, patch_context_lines)?);
@@ -897,13 +900,7 @@ impl PatchLocator {
 
         for mut hunk in splitted_hunks {
             self.convert_clean_hunk_offsets(&mut hunk, conflicts);
-            self.process_clean_hunk_single(
-                conflicts,
-                &hunk,
-                &minus_lines,
-                &minus_lines_hasher,
-                data,
-            )?;
+            self.process_clean_hunk_single(conflicts, &hunk, &minus_lines, &minus_lines_hasher)?;
         }
 
         Ok(())
@@ -966,14 +963,9 @@ impl PatchLocator {
         Ok(())
     }
 
-    fn match_conflicting_hunks(
-        &self,
-        conflicts: &mut [Conflict],
-        hunks: Vec<Hunk>,
-        data: &PatchLocatorData,
-    ) -> Result<()> {
+    fn match_conflicting_hunks(&self, conflicts: &mut [Conflict], hunks: Vec<Hunk>) -> Result<()> {
         // Split hunks into smaller snippets and flatten them
-        let patch_context_lines = data.context_lines.patch_context_lines as usize;
+        let patch_context_lines = self.context_lines.patch_context_lines as usize;
         let mut splitted_conflicts_hunks: Vec<Hunk> = Vec::with_capacity(hunks.len());
         for h in hunks {
             splitted_conflicts_hunks.extend(h.split(1, patch_context_lines)?);
@@ -986,11 +978,7 @@ impl PatchLocator {
         Ok(())
     }
 
-    fn merge_conflicts(
-        &self,
-        conflicts: &mut Vec<Conflict>,
-        data: &PatchLocatorData,
-    ) -> Result<()> {
+    fn merge_conflicts(&self, conflicts: &mut Vec<Conflict>) -> Result<()> {
         conflicts.sort_by_key(|c| c.local_start);
 
         loop {
@@ -1033,7 +1021,7 @@ impl PatchLocator {
                     if current.commit_type.is_clean() && next.commit_type.is_clean() {
                         let gap = current.local_end..next.local_start;
                         for i in gap {
-                            current.conflict_code.push_str(&data.merged_local_lines[i]);
+                            current.conflict_code.push_str(&self.merged_local_lines[i]);
                         }
                         current.conflict_code.push_str(&next.conflict_code);
                         current.local_end = next.local_end;
@@ -1106,13 +1094,9 @@ impl PatchLocator {
         Ok(())
     }
 
-    fn relocate_conflicts(
-        &self,
-        conflicts: &mut [Conflict],
-        data: &PatchLocatorData,
-    ) -> Result<()> {
-        let extra_conflict_lines = data.context_lines.extra_conflict_lines as usize;
-        let code_context_lines = data.context_lines.code_context_lines as usize;
+    fn relocate_conflicts(&self, conflicts: &mut [Conflict]) -> Result<()> {
+        let extra_conflict_lines = self.context_lines.extra_conflict_lines as usize;
+        let code_context_lines = self.context_lines.code_context_lines as usize;
 
         let conflicts_tmp = conflicts.to_vec();
         for (i, conflict) in conflicts.iter_mut().enumerate() {
@@ -1143,7 +1127,7 @@ impl PatchLocator {
             let next_new_local_start = if i + 1 < conflicts_tmp.len() {
                 conflicts_tmp[i + 1].local_start
             } else {
-                data.merged_local_lines.len()
+                self.merged_local_lines.len()
             };
             let tail_margin = (next_new_local_start - conflict.local_end).saturating_sub(1);
             let prev_new_local_end = prev_new_local_end
@@ -1152,7 +1136,7 @@ impl PatchLocator {
             let next_new_local_start = next_new_local_start
                 .saturating_add(tail)
                 .min(conflict.local_end.saturating_add(Self::MAX_SCAN))
-                .min(data.merged_local_lines.len());
+                .min(self.merged_local_lines.len());
             let scan_range = next_new_local_start - prev_new_local_end;
             let head_scan_range = conflict.local_start - prev_new_local_end;
             let tail_scan_range = next_new_local_start - conflict.local_end;
@@ -1174,7 +1158,6 @@ impl PatchLocator {
                         (prev_new_local_end, next_new_local_start),
                         &head_context,
                         &tail_context,
-                        data,
                     )?;
                 } else if head >= Self::DIFF3_CONTEXT_LINES
                     && head_margin > 0
@@ -1185,7 +1168,6 @@ impl PatchLocator {
                         prev_new_local_end,
                         conflict.local_start,
                         &head_context,
-                        data,
                     )?;
                 } else if tail >= Self::DIFF3_CONTEXT_LINES
                     && tail_margin > 0
@@ -1196,7 +1178,6 @@ impl PatchLocator {
                         conflict.local_end,
                         next_new_local_start,
                         &tail_context,
-                        data,
                     )?;
                 }
 
@@ -1226,7 +1207,7 @@ impl PatchLocator {
             conflict.new_local_end = conflict
                 .local_end
                 .saturating_add(extra_tail)
-                .min(data.merged_local_lines.len());
+                .min(self.merged_local_lines.len());
         }
         Ok(())
     }
@@ -1249,19 +1230,17 @@ impl PatchLocator {
         &self,
         head_context: &[String],
         range: std::ops::Range<usize>,
-        merged_local_lines: &[String],
         (anchored, tail, max_context_distance): (bool, bool, f64),
-        data: &PatchLocatorData,
     ) -> Result<Option<(Vec<f64>, usize)>> {
-        let cache = data.lmdb_cache.as_deref();
+        let cache = self.lmdb_cache.as_deref();
         let merged_local_lines = if tail {
-            &merged_local_lines[range.clone()]
+            &self.merged_local_lines[range.clone()]
                 .iter()
                 .rev()
                 .cloned()
                 .collect::<Vec<_>>()
         } else {
-            &merged_local_lines[range.clone()]
+            &self.merged_local_lines[range.clone()]
         };
         let head_context = if tail {
             &head_context.iter().rev().cloned().collect::<Vec<_>>()
@@ -1382,16 +1361,10 @@ impl PatchLocator {
         Ok(result)
     }
 
-    fn update_conflict_code(
-        &self,
-        conflict: &mut Conflict,
-        start: usize,
-        end: usize,
-        merged_local_lines: &[String],
-    ) {
+    fn update_conflict_code(&self, conflict: &mut Conflict, start: usize, end: usize) {
         conflict.local_start = start;
         conflict.local_end = end;
-        conflict.conflict_code = merged_local_lines[start..end].join("");
+        conflict.conflict_code = self.merged_local_lines[start..end].join("");
     }
 
     fn relocate_both(
@@ -1400,15 +1373,12 @@ impl PatchLocator {
         (prev_new_local_end, next_new_local_start): (usize, usize),
         head_context: &[String],
         tail_context: &[String],
-        data: &PatchLocatorData,
     ) -> Result<()> {
         let max_context_distance = self.calc_max_context_distance(conflict, head_context);
         let Some((head_distances, offset)) = self.calc_distances(
             head_context,
             prev_new_local_end..next_new_local_start,
-            &data.merged_local_lines,
             (false, false, max_context_distance),
-            data,
         )?
         else {
             log::debug!(
@@ -1426,9 +1396,7 @@ impl PatchLocator {
         let Some((tail_distances, offset)) = self.calc_distances(
             tail_context,
             prev_new_local_end..next_new_local_start,
-            &data.merged_local_lines,
             (false, true, max_context_distance),
-            data,
         )?
         else {
             log::debug!(
@@ -1467,7 +1435,7 @@ impl PatchLocator {
             }
         }
         if head_offset <= tail_offset {
-            self.update_conflict_code(conflict, head_offset, tail_offset, &data.merged_local_lines);
+            self.update_conflict_code(conflict, head_offset, tail_offset);
         }
         Ok(())
     }
@@ -1478,15 +1446,12 @@ impl PatchLocator {
         prev_new_local_end: usize,
         next_new_local_start: usize,
         context: &[String],
-        data: &PatchLocatorData,
     ) -> Result<()> {
         let max_context_distance = self.calc_max_context_distance(conflict, context);
         let Some((_, offset)) = self.calc_distances(
             context,
             prev_new_local_end..next_new_local_start,
-            &data.merged_local_lines,
             (true, false, max_context_distance),
-            data,
         )?
         else {
             log::debug!(
@@ -1501,12 +1466,7 @@ impl PatchLocator {
         };
         let offset = prev_new_local_end + offset;
         if offset < conflict.local_start {
-            self.update_conflict_code(
-                conflict,
-                offset,
-                conflict.local_end,
-                &data.merged_local_lines,
-            );
+            self.update_conflict_code(conflict, offset, conflict.local_end);
         }
         Ok(())
     }
@@ -1517,15 +1477,12 @@ impl PatchLocator {
         prev_new_local_end: usize,
         next_new_local_start: usize,
         context: &[String],
-        data: &PatchLocatorData,
     ) -> Result<()> {
         let max_context_distance = self.calc_max_context_distance(conflict, context);
         let Some((_, offset)) = self.calc_distances(
             context,
             prev_new_local_end..next_new_local_start,
-            &data.merged_local_lines,
             (true, true, max_context_distance),
-            data,
         )?
         else {
             log::debug!(
@@ -1540,12 +1497,7 @@ impl PatchLocator {
         };
         let offset = prev_new_local_end + offset;
         if offset < conflict.local_start {
-            self.update_conflict_code(
-                conflict,
-                conflict.local_start,
-                offset,
-                &data.merged_local_lines,
-            );
+            self.update_conflict_code(conflict, conflict.local_start, offset);
         }
         Ok(())
     }
@@ -1553,12 +1505,11 @@ impl PatchLocator {
     fn regenerate_conflict(
         &self,
         conflict: &mut Conflict,
-        data: &PatchLocatorData,
         prev_new_local_end: usize,
         next_new_local_start: usize,
     ) -> Result<()> {
-        let code_context_lines = data.context_lines.code_context_lines as usize;
-        let merged_local_lines = &data.merged_local_lines;
+        let code_context_lines = self.context_lines.code_context_lines as usize;
+        let merged_local_lines = &self.merged_local_lines;
 
         log::debug!(
             "Regenerating conflict: {} {} {} {} {:?}",
@@ -1615,34 +1566,30 @@ impl PatchLocator {
         Ok(())
     }
 
-    pub fn patch_locator(
-        &self,
-        conflicts: &mut Vec<Conflict>,
-        data: &PatchLocatorData,
-    ) -> Result<()> {
+    pub fn patch_locator(&self, conflicts: &mut Vec<Conflict>) -> Result<()> {
         assert!(!conflicts.is_empty());
-        let hunks = self.diff_to_hunks(&data.conflict_diff)?;
+        let hunks = self.diff_to_hunks(&self.conflict_diff)?;
         if hunks.is_empty() {
             anyhow::bail!("conflict_diff contains no hunks");
         }
-        self.match_conflicting_hunks(conflicts, hunks, data)?;
-        self.relocate_conflicts(conflicts, data)?;
+        self.match_conflicting_hunks(conflicts, hunks)?;
+        self.relocate_conflicts(conflicts)?;
 
-        let hunks = self.diff_to_hunks(&data.clean_diff)?;
+        let hunks = self.diff_to_hunks(&self.clean_diff)?;
         if !hunks.is_empty() {
-            self.process_clean_hunks(conflicts, hunks, data)?;
+            self.process_clean_hunks(conflicts, hunks)?;
         }
 
-        let code_snippets = Arc::new(self.create_code_snippets(conflicts, data));
+        let code_snippets = Arc::new(self.create_code_snippets(conflicts));
 
-        self.merge_conflicts(conflicts, data)?;
+        self.merge_conflicts(conflicts)?;
 
         let mut prev_new_local_end = 0;
         for i in 0..conflicts.len() {
             let next_new_local_start = if i + 1 < conflicts.len() {
                 conflicts[i + 1].new_local_start
             } else {
-                data.merged_local_lines.len()
+                self.merged_local_lines.len()
             };
             let conflict = &mut conflicts[i];
             if conflict.commit_type == CommitType::CleanDisabled {
@@ -1650,11 +1597,11 @@ impl PatchLocator {
             }
             conflict.code_snippets = code_snippets.clone();
             let next_prev_new_local_end = conflict.new_local_end;
-            self.regenerate_conflict(conflict, data, prev_new_local_end, next_new_local_start)?;
+            self.regenerate_conflict(conflict, prev_new_local_end, next_new_local_start)?;
             prev_new_local_end = next_prev_new_local_end;
         }
 
-        self.validate_conflicts(conflicts, data.merged_local_lines.len())?;
+        self.validate_conflicts(conflicts, self.merged_local_lines.len())?;
 
         Ok(())
     }
@@ -1796,18 +1743,14 @@ impl PatchLocator {
         Ok(())
     }
 
-    fn create_code_snippets(
-        &self,
-        conflicts: &mut [Conflict],
-        data: &PatchLocatorData,
-    ) -> Vec<Snippet> {
+    fn create_code_snippets(&self, conflicts: &mut [Conflict]) -> Vec<Snippet> {
         conflicts.sort_by_key(|c| c.local_start);
 
-        //let cl = &data.context_lines;
+        //let cl = &self.context_lines;
         //let extra_lines = (cl.code_context_lines + cl.extra_conflict_lines) as usize;
         //let extra_lines = cl.code_context_lines as usize;
         let extra_lines = 0;
-        let max_context_size = data.max_context_size as usize;
+        let max_context_size = self.max_context_size as usize;
         let mut snippets: Vec<Snippet> = Vec::new();
         let mut last_end = 0;
         for (i, conflict) in conflicts.iter().enumerate() {
@@ -1824,7 +1767,7 @@ impl PatchLocator {
                 if i + 1 < conflicts.len() && conflicts[i + 1].commit_type.is_clean() {
                     conflicts[i + 1].local_start
                 } else {
-                    data.merged_local_lines.len()
+                    self.merged_local_lines.len()
                 };
 
             let mut snippet = String::new();
@@ -1848,7 +1791,7 @@ impl PatchLocator {
             }
             last_end = end;
 
-            for line in &data.merged_local_lines[start..last_end] {
+            for line in &self.merged_local_lines[start..last_end] {
                 snippet.push_str(line);
             }
             snippets.push(Snippet {

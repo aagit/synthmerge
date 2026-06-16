@@ -3,7 +3,7 @@
 
 use crate::conflict_resolver::{CommitType, Conflict, ConflictResolver, ResolvedConflict};
 use crate::lmdb_cache::{LmdbCacheImpl, PatchLocatorCache};
-use crate::patch_locator::{PatchLocator, PatchLocatorData};
+use crate::patch_locator::PatchLocator;
 use crate::prob;
 use anyhow::{Context, Result};
 use regex::Regex;
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ContextLines {
     pub code_context_lines: u32,
     pub diff_context_lines: u32,
@@ -102,11 +102,10 @@ struct ConflictOffsets {
 }
 
 pub struct GitUtils {
-    context_lines: Arc<ContextLines>,
+    context_lines: ContextLines,
     in_rebase: bool,
     git_root: Option<String>,
     git_dir: Option<String>,
-    patch_locator: PatchLocator,
     blob_cache: HashMap<String, Arc<String>>,
     lmdb_cache: Option<Arc<LmdbCacheImpl>>,
     resolution_mode: ResolutionMode,
@@ -127,7 +126,6 @@ impl GitUtils {
         resolution_mode: ResolutionMode,
         retries: usize,
     ) -> Self {
-        let context_lines = Arc::new(context_lines);
         let git_root = Self::get_git_root_uncached().ok();
         let git_dir = Self::get_git_dir_uncached().ok();
         let lmdb_cache = cache_path.map(|path| {
@@ -136,13 +134,11 @@ impl GitUtils {
                     .expect("Failed to create API cache"),
             )
         });
-        let patch_locator = PatchLocator::new();
         GitUtils {
             context_lines,
             in_rebase: false,
             git_root,
             git_dir,
-            patch_locator,
             blob_cache: HashMap::new(),
             lmdb_cache,
             resolution_mode,
@@ -152,18 +148,10 @@ impl GitUtils {
 
     /// Reset context lines to their original values after successful resolution
     pub fn restore_context_lines(&mut self, original: &ContextLines) {
-        Arc::get_mut(&mut self.context_lines)
-            .unwrap()
-            .code_context_lines = original.code_context_lines;
-        Arc::get_mut(&mut self.context_lines)
-            .unwrap()
-            .diff_context_lines = original.diff_context_lines;
-        Arc::get_mut(&mut self.context_lines)
-            .unwrap()
-            .patch_context_lines = original.patch_context_lines;
-        Arc::get_mut(&mut self.context_lines)
-            .unwrap()
-            .extra_conflict_lines = original.extra_conflict_lines;
+        self.context_lines.code_context_lines = original.code_context_lines;
+        self.context_lines.diff_context_lines = original.diff_context_lines;
+        self.context_lines.patch_context_lines = original.patch_context_lines;
+        self.context_lines.extra_conflict_lines = original.extra_conflict_lines;
     }
 
     /// Retry logic: decrement retries and adjust context lines based
@@ -185,9 +173,8 @@ impl GitUtils {
                     self.context_lines.code_context_lines,
                     self.context_lines.code_context_lines.saturating_sub(1)
                 );
-                Arc::get_mut(&mut self.context_lines)
-                    .unwrap()
-                    .code_context_lines = self.context_lines.code_context_lines.saturating_sub(1);
+                self.context_lines.code_context_lines =
+                    self.context_lines.code_context_lines.saturating_sub(1);
 
                 true
             }
@@ -197,9 +184,7 @@ impl GitUtils {
                     self.context_lines.extra_conflict_lines,
                     self.context_lines.extra_conflict_lines.saturating_add(1)
                 );
-                Arc::get_mut(&mut self.context_lines)
-                    .unwrap()
-                    .extra_conflict_lines =
+                self.context_lines.extra_conflict_lines =
                     self.context_lines.extra_conflict_lines.saturating_add(1);
 
                 true
@@ -397,18 +382,17 @@ impl GitUtils {
                     };
 
                     if self.resolution_mode == ResolutionMode::VibeWithPatchLocator {
-                        let patch_locator_data = PatchLocatorData {
-                            local_content: local_content.clone(),
-                            merged_local_content: merged_local_content.clone(),
-                            merged_local_lines: merged_local_lines.clone(),
-                            clean_diff: clean_diff.clone(),
-                            conflict_diff: conflict_diff.clone(),
-                            lmdb_cache: self.lmdb_cache.clone(),
-                            context_lines: self.context_lines.clone(),
+                        let patch_locator = PatchLocator::new(
+                            local_content.clone(),
+                            merged_local_content.clone(),
+                            merged_local_lines.clone(),
+                            clean_diff.clone(),
+                            conflict_diff.clone(),
+                            self.lmdb_cache.clone(),
+                            self.context_lines,
                             max_context_size,
-                        };
-                        self.patch_locator
-                            .patch_locator(&mut conflicts, &patch_locator_data)?;
+                        );
+                        patch_locator.patch_locator(&mut conflicts)?;
                     }
 
                     for conflict in &mut conflicts {

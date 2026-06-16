@@ -418,9 +418,9 @@ impl<'a> ConflictResolver<'a> {
             let primary = if endpoints[endpoint].primary { 1 } else { 0 };
 
             // Helper closure for error handling
-            let mut record_error = |model: &str, beam: usize, multi: usize| {
+            let mut record_error = |model: &str, retry: bool| {
                 *resolver_errors.errors.entry(model.to_string()).or_insert(0) += 1;
-                if beam == 0 && multi == 0 {
+                if retry {
                     recoverable[primary] = true;
                 }
             };
@@ -432,7 +432,7 @@ impl<'a> ConflictResolver<'a> {
                         Err(e) => {
                             let model = self.get_model_name(endpoints, endpoint, variant, beam);
                             log::error!("Skipping {} - {}", model, e);
-                            record_error(&model, 1, 1);
+                            record_error(&model, false);
                             continue;
                         }
                     };
@@ -442,7 +442,7 @@ impl<'a> ConflictResolver<'a> {
                         Err(e) => {
                             let model = self.get_model_name(endpoints, endpoint, variant, beam);
                             log::warn!("Skipping {} - {}", model, e);
-                            record_error(&model, beam, 0);
+                            record_error(&model, beam == 0);
                             continue;
                         }
                     };
@@ -475,7 +475,7 @@ impl<'a> ConflictResolver<'a> {
                                 1,
                             );
                             log::info!("HeadContextDiff:\n{}", diff);
-                            record_error(&model, beam, multi);
+                            record_error(&model, beam == 0 && multi == 0);
                             continue;
                         }
                         let leading_tail_context = if !conflict.head_context.is_empty() {
@@ -504,7 +504,7 @@ impl<'a> ConflictResolver<'a> {
                                 1,
                             );
                             log::info!("TailContextDiff:\n{}", diff);
-                            record_error(&model, beam, multi);
+                            record_error(&model, beam == 0 && multi == 0);
                             continue;
                         }
                         //reduce resolved to the range between head_context and tail_context
@@ -515,7 +515,7 @@ impl<'a> ConflictResolver<'a> {
                                 model
                             );
                             log::trace!("ResolvedContent:\n{}", resolved_string);
-                            record_error(&model, beam, multi);
+                            record_error(&model, beam == 0 && multi == 0);
                             continue;
                         };
 
@@ -529,7 +529,7 @@ impl<'a> ConflictResolver<'a> {
                                 model
                             );
                             log::trace!("ResolvedContent:\n{}", resolved_version);
-                            record_error(&model, beam, multi);
+                            record_error(&model, beam == 0 && multi == 0);
                             continue;
                         }
 
@@ -666,11 +666,10 @@ impl<'a> ConflictResolver<'a> {
         let mut has_diff = false;
         if let Some(diff) = &self.git_diff
             && diff.contains(&conflict.file_path)
+            && let Some(formatted_diff) = Self::git_diff(Some(diff.clone()), use_backticks)
         {
-            if let Some(formatted_diff) = Self::git_diff(Some(diff.clone()), use_backticks) {
-                parts.push(formatted_diff);
-                has_diff = true;
-            }
+            parts.push(formatted_diff);
+            has_diff = true;
         }
         if conflict.commit_type == CommitType::ConflictAndClean {
             parts.push(Self::raw_patch(
