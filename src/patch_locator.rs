@@ -1088,8 +1088,10 @@ impl PatchLocator {
         let extra_conflict_lines = self.context_lines.extra_conflict_lines as usize;
         let code_context_lines = self.context_lines.code_context_lines as usize;
 
-        let conflicts_tmp = conflicts.to_vec();
-        for (i, conflict) in conflicts.iter_mut().enumerate() {
+        let mut restart = false;
+        for i in 0..conflicts.len() {
+            let conflicts_tmp = conflicts.to_vec();
+            let conflict = &mut conflicts[i];
             // Only Conflicts can be fully relocated
             // Clean commit types can only be extended
             assert!(conflict.commit_type == CommitType::Conflict);
@@ -1168,8 +1170,9 @@ impl PatchLocator {
                 if conflict.local_start != orig_local_start || conflict.local_end != orig_local_end
                 {
                     log::debug!(
-                        "Relocated conflict in {} from [{}, {}) to [{}, {})",
+                        "Relocated conflict in {}:{}: [{},{}) -> [{},{})",
                         conflict.file_path,
+                        conflict.start_line,
                         orig_local_start,
                         orig_local_end,
                         conflict.local_start,
@@ -1192,7 +1195,24 @@ impl PatchLocator {
                 .local_end
                 .saturating_add(extra_tail)
                 .min(self.merged_local_lines.len());
+
+            let is_out_of_order = (i > 0
+                && conflict.local_start < conflicts_tmp[i - 1].local_start)
+                || (i + 1 < conflicts_tmp.len()
+                    && conflict.local_start > conflicts_tmp[i + 1].local_start);
+
+            if is_out_of_order {
+                restart = true;
+                break;
+            }
         }
+
+        if restart {
+            log::debug!("Conflicts out of order, sorting and relocating");
+            conflicts.sort_by_key(|c| c.local_start);
+            return self.relocate_conflicts(conflicts);
+        }
+
         Ok(())
     }
 
