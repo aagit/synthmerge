@@ -1129,9 +1129,8 @@ impl PatchLocator {
 
             let orig_local_start = conflict.local_start;
             let orig_local_end = conflict.local_end;
-            let (extra_head, extra_tail) = if head >= Self::DIFF3_CONTEXT_LINES
-                || tail >= Self::DIFF3_CONTEXT_LINES
-            {
+
+            if head >= Self::DIFF3_CONTEXT_LINES || tail >= Self::DIFF3_CONTEXT_LINES {
                 if head >= Self::DIFF3_CONTEXT_LINES
                     && tail >= Self::DIFF3_CONTEXT_LINES
                     && head_margin > 0
@@ -1166,29 +1165,22 @@ impl PatchLocator {
                         &tail_context,
                     )?;
                 }
-
-                if conflict.local_start != orig_local_start || conflict.local_end != orig_local_end
-                {
-                    log::debug!(
-                        "Relocated conflict in {}:{}: [{},{}) -> [{},{})",
-                        conflict.file_path,
-                        conflict.start_line,
-                        orig_local_start,
-                        orig_local_end,
-                        conflict.local_start,
-                        conflict.local_end
-                    );
-                }
-
-                let extra_head = code_context_lines.min(head_margin);
-                let extra_tail = code_context_lines.min(tail_margin);
-                (
-                    extra_conflict_lines + extra_head,
-                    extra_conflict_lines + extra_tail,
-                )
-            } else {
-                (extra_conflict_lines, extra_conflict_lines)
             };
+
+            let extra_head = code_context_lines.min(head_margin) + extra_conflict_lines;
+            let extra_tail = code_context_lines.min(tail_margin) + extra_conflict_lines;
+
+            if conflict.local_start != orig_local_start || conflict.local_end != orig_local_end {
+                log::debug!(
+                    "Relocated conflict in {}:{}: [{},{}) -> [{},{})",
+                    conflict.file_path,
+                    conflict.start_line,
+                    orig_local_start,
+                    orig_local_end,
+                    conflict.local_start,
+                    conflict.local_end
+                );
+            }
 
             conflict.new_local_start = conflict.local_start.saturating_sub(extra_head);
             conflict.new_local_end = conflict
