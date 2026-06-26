@@ -391,6 +391,29 @@ impl<'a> ConflictResolver<'a> {
         }
     }
 
+    fn validate_resolved_version_not_patch(resolved_version: &str, conflict: &Conflict) -> bool {
+        let has_patch_lines = resolved_version
+            .lines()
+            .any(|line| line.starts_with('+') || line.starts_with('-'));
+
+        if !has_patch_lines {
+            return true;
+        }
+
+        // Check if conflict_code has lines starting with + or -
+        let code_has_patch_lines = conflict
+            .conflict_code
+            .lines()
+            .any(|line| line.starts_with('+') || line.starts_with('-'));
+
+        let patch_has_patch_lines = conflict
+            .conflict_patch
+            .lines()
+            .any(|line| line.chars().nth(1) == Some('+') || line.chars().nth(1) == Some('-'));
+
+        code_has_patch_lines || patch_has_patch_lines
+    }
+
     fn process_results(
         &self,
         resolved_conflicts: &mut Vec<ResolvedConflict>,
@@ -528,6 +551,13 @@ impl<'a> ConflictResolver<'a> {
                                 "Skipping {} - resolved content is not newline terminated",
                                 model
                             );
+                            log::trace!("ResolvedContent:\n{}", resolved_version);
+                            record_error(&model, beam == 0 && multi == 0);
+                            continue;
+                        }
+
+                        if !Self::validate_resolved_version_not_patch(&resolved_version, conflict) {
+                            log::warn!("Skipping {} - resolved version looks like a patch", model);
                             log::trace!("ResolvedContent:\n{}", resolved_version);
                             record_error(&model, beam == 0 && multi == 0);
                             continue;
