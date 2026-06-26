@@ -491,6 +491,8 @@ impl PatchLocator {
     const MAX_RELOCATION_DISTANCE: f64 = 0.2;
     const MAX_BODY_LEN: usize = 1000;
     const MAX_SCAN: usize = 500;
+    const MAX_BASE_SCAN: usize = 50;
+    const MAX_BASE_DISTANCE: f64 = 0.1;
     const DIFF3_CONTEXT_LINES: usize = 3;
     const EXTEND_CONFLICT_ON_CLEAN_MERGE: bool = true;
 
@@ -1131,6 +1133,8 @@ impl PatchLocator {
             let orig_local_end = conflict.local_end;
 
             if head >= Self::DIFF3_CONTEXT_LINES || tail >= Self::DIFF3_CONTEXT_LINES {
+                let mut head_found = false;
+                let mut tail_found = false;
                 if head >= Self::DIFF3_CONTEXT_LINES
                     && tail >= Self::DIFF3_CONTEXT_LINES
                     && head_margin > 0
@@ -1138,17 +1142,19 @@ impl PatchLocator {
                     && scan_range > head
                     && scan_range > tail
                 {
-                    self.relocate_both(
+                    let found = self.relocate_both(
                         conflict,
                         (prev_new_local_end, next_new_local_start),
                         &head_context,
                         &tail_context,
                     )?;
+                    head_found = found;
+                    tail_found = found;
                 } else if head >= Self::DIFF3_CONTEXT_LINES
                     && head_margin > 0
                     && head_scan_range > head
                 {
-                    self.relocate_head(
+                    head_found = self.relocate_head(
                         conflict,
                         prev_new_local_end,
                         conflict.local_start,
@@ -1158,12 +1164,33 @@ impl PatchLocator {
                     && tail_margin > 0
                     && tail_scan_range > tail
                 {
-                    self.relocate_tail(
+                    tail_found = self.relocate_tail(
                         conflict,
                         conflict.local_end,
                         next_new_local_start,
                         &tail_context,
                     )?;
+                }
+                if !head_found {
+                    let start = conflict
+                        .local_end
+                        .saturating_sub(Self::MAX_BASE_SCAN)
+                        .max(prev_new_local_end);
+                    let end = conflict.local_end;
+                    if !self.relocate_base(conflict, start..end, true)? {
+                        self.relocate_remote(conflict, start..end, true)?;
+                    }
+                }
+                if !tail_found {
+                    let start = conflict.local_start;
+                    let end = conflict
+                        .local_start
+                        .saturating_add(Self::MAX_BASE_SCAN)
+                        .min(self.merged_local_lines.len())
+                        .min(next_new_local_start);
+                    if !self.relocate_base(conflict, start..end, false)? {
+                        self.relocate_remote(conflict, start..end, false)?;
+                    }
                 }
             };
 
@@ -1364,7 +1391,7 @@ impl PatchLocator {
         (prev_new_local_end, next_new_local_start): (usize, usize),
         head_context: &[String],
         tail_context: &[String],
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let max_context_distance = self.calc_max_context_distance(conflict, head_context);
         let (head_distances, offset) = match self.calc_distances(
             head_context,
@@ -1434,8 +1461,10 @@ impl PatchLocator {
         }
         if head_offset <= tail_offset {
             self.update_conflict_code(conflict, head_offset, tail_offset);
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     fn relocate_head(
@@ -1444,7 +1473,7 @@ impl PatchLocator {
         prev_new_local_end: usize,
         next_new_local_start: usize,
         context: &[String],
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let max_context_distance = self.calc_max_context_distance(conflict, context);
         let Some((_, offset)) = self.calc_distances(
             context,
@@ -1460,13 +1489,13 @@ impl PatchLocator {
                 context.len(),
                 next_new_local_start - prev_new_local_end
             );
-            return Ok(());
+            return Ok(false);
         };
         let offset = prev_new_local_end + offset;
         if offset < conflict.local_start {
             self.update_conflict_code(conflict, offset, conflict.local_end);
         }
-        Ok(())
+        Ok(true)
     }
 
     fn relocate_tail(
@@ -1475,7 +1504,7 @@ impl PatchLocator {
         prev_new_local_end: usize,
         next_new_local_start: usize,
         context: &[String],
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let max_context_distance = self.calc_max_context_distance(conflict, context);
         let Some((_, offset)) = self.calc_distances(
             context,
@@ -1491,13 +1520,77 @@ impl PatchLocator {
                 context.len(),
                 next_new_local_start - prev_new_local_end
             );
-            return Ok(());
+            return Ok(false);
         };
         let offset = prev_new_local_end + offset;
         if offset > conflict.local_end {
             self.update_conflict_code(conflict, conflict.local_start, offset);
         }
-        Ok(())
+        Ok(true)
+    }
+
+    fn relocate_base(
+        &self,
+        conflict: &mut Conflict,
+        range: std::ops::Range<usize>,
+        reverse: bool,
+    ) -> Result<bool> {
+        let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
+        let mut lines = Vec::new();
+        for hunk in &hunks {
+            lines.extend(hunk.get_conflict_base()?);
+        }
+        if lines.is_empty() {
+            return Ok(false);
+        }
+        let max_context_distance = Self::MAX_BASE_DISTANCE;
+        let Some((_, offset)) = self.calc_distances(
+            &lines,
+            range.clone(),
+            (false, reverse, max_context_distance),
+        )?
+        else {
+            return Ok(false);
+        };
+        let offset = range.start + offset;
+        if reverse {
+            self.update_conflict_code(conflict, offset, conflict.local_end);
+        } else {
+            self.update_conflict_code(conflict, conflict.local_start, offset);
+        }
+        Ok(true)
+    }
+
+    fn relocate_remote(
+        &self,
+        conflict: &mut Conflict,
+        range: std::ops::Range<usize>,
+        reverse: bool,
+    ) -> Result<bool> {
+        let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
+        let mut lines = Vec::new();
+        for hunk in &hunks {
+            lines.extend(hunk.get_conflict_remote()?);
+        }
+        if lines.is_empty() {
+            return Ok(false);
+        }
+        let max_context_distance = Self::MAX_BASE_DISTANCE / 2.;
+        let Some((_, offset)) = self.calc_distances(
+            &lines,
+            range.clone(),
+            (false, reverse, max_context_distance),
+        )?
+        else {
+            return Ok(false);
+        };
+        let offset = range.start + offset;
+        if reverse {
+            self.update_conflict_code(conflict, offset, conflict.local_end);
+        } else {
+            self.update_conflict_code(conflict, conflict.local_start, offset);
+        }
+        Ok(true)
     }
 
     fn regenerate_conflict(
