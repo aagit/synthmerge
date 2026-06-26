@@ -164,7 +164,11 @@ impl GitUtils {
         }
 
         self.retries -= 1;
-        let retry_idx: u32 = (self.max_retries - self.retries).try_into().unwrap();
+        let extra: u32 = if self.retries < self.max_retries / 2 {
+            (self.max_retries - self.retries).try_into().unwrap()
+        } else {
+            1
+        };
 
         match self.resolution_mode {
             ResolutionMode::VibeWithMarkers => {
@@ -187,12 +191,12 @@ impl GitUtils {
                     self.context_lines.extra_conflict_lines,
                     self.context_lines
                         .extra_conflict_lines
-                        .saturating_add(retry_idx)
+                        .saturating_add(extra)
                 );
                 self.context_lines.extra_conflict_lines = self
                     .context_lines
                     .extra_conflict_lines
-                    .saturating_add(retry_idx);
+                    .saturating_add(extra);
 
                 true
             }
