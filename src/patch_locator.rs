@@ -82,73 +82,6 @@ impl Hunk {
         )
     }
 
-    /// Merges adjacent or overlapping hunks into a single hunk.
-    ///
-    /// Sorts the input hunks by `base_start` and then walks the list, merging
-    /// any hunk that starts within the end of the previous hunk.
-    /// The resulting hunk combines the bodies and updates the base/remote lengths.
-    pub fn merge(mut hunks: Vec<Hunk>) -> Vec<Hunk> {
-        // Sort by base_start
-        hunks.sort_by_key(|h| h.base_start);
-
-        let mut merged = Vec::new();
-        let mut current = hunks.remove(0);
-
-        for next in hunks {
-            // Check if next hunk overlaps or is adjacent to current
-            // current covers base_start to base_start + base_len
-            // next starts at next.base_start
-            if next.base_start <= current.base_start + current.base_len {
-                // Append non-overlapping lines from next.body
-                // to current.body We need to figure out how many
-                // lines of current.body overlap with next Since base
-                // lines are ' ' or '-', and remote are ' ' or '+' The
-                // overlap in base lines is (current.base_start +
-                // current.base_len) - next.base_start
-                let overlap_base = (current.base_start + current.base_len) - next.base_start;
-
-                // We assume the body lines are sequential.
-                // The first `overlap_base` lines of next.body
-                // correspond to the end of current.body
-                // So we append lines from next.body starting at index
-                // `overlap_base`
-
-                let mut new_body = current.body;
-                if overlap_base < next.body.len() {
-                    new_body.extend_from_slice(&next.body[overlap_base..]);
-                }
-
-                // Update lengths
-                // The new base length is the number of base lines in new_body
-                // The new remote length is the number of remote lines in new_body
-                // We can just count them from the body or update incrementally.
-                // Counting is safer to ensure consistency.
-                let mut new_base_len = 0;
-                let mut new_remote_len = 0;
-                for line in &new_body {
-                    if line.starts_with(' ') || line.starts_with('-') {
-                        new_base_len += 1;
-                    }
-                    if line.starts_with(' ') || line.starts_with('+') {
-                        new_remote_len += 1;
-                    }
-                }
-
-                current.body = new_body;
-                current.base_len = new_base_len;
-                current.remote_len = new_remote_len;
-                // The base_start and remote_start remain those of the
-                // first hunk in the merged group
-            } else {
-                // No overlap, push current and start new
-                merged.push(current);
-                current = next;
-            }
-        }
-        merged.push(current);
-        merged
-    }
-
     /// Returns the head context lines for this hunk.
     /// Head context lines are the leading lines that start with a space (context)
     /// The returned lines are trimmed (leading whitespace stripped).
@@ -1825,7 +1758,6 @@ impl PatchLocator {
             );
         }
         conflict.hunks.sort_by_key(|h| h.base_start);
-        conflict.hunks = Hunk::merge(conflict.hunks.clone());
         conflict.conflict_patch = conflict
             .hunks
             .iter()
