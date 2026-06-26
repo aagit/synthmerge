@@ -1882,13 +1882,13 @@ impl PatchLocator {
             }
             last_end = end;
 
-            for line in &self.merged_local_lines[start..last_end] {
+            for line in &self.merged_local_lines[start..end] {
                 snippet.push_str(line);
             }
             snippets.push(Snippet {
                 snippet,
                 local_start: start,
-                local_end: last_end,
+                local_end: end,
             });
         }
 
