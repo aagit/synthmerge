@@ -1494,7 +1494,7 @@ impl PatchLocator {
             return Ok(());
         };
         let offset = prev_new_local_end + offset;
-        if offset < conflict.local_start {
+        if offset > conflict.local_end {
             self.update_conflict_code(conflict, conflict.local_start, offset);
         }
         Ok(())
