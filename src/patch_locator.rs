@@ -1744,10 +1744,10 @@ impl PatchLocator {
     fn create_code_snippets(&self, conflicts: &mut [Conflict]) -> Vec<Snippet> {
         conflicts.sort_by_key(|c| c.local_start);
 
-        //let cl = &self.context_lines;
+        let cl = &self.context_lines;
         //let extra_lines = (cl.code_context_lines + cl.extra_conflict_lines) as usize;
-        //let extra_lines = cl.code_context_lines as usize;
-        let extra_lines = 0;
+        let extra_lines = cl.code_context_lines as usize;
+        //let extra_lines = 0;
         let max_context_size = self.max_context_size as usize;
         let mut snippets: Vec<Snippet> = Vec::new();
         let mut last_end = 0;
