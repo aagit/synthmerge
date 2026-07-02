@@ -1046,7 +1046,9 @@ impl PatchLocator {
         let extra_conflict_lines = self.context_lines.extra_conflict_lines as usize;
         let code_context_lines = self.context_lines.code_context_lines as usize;
 
-        let mut restart = false;
+        conflicts.sort_by_key(|c| c.local_start);
+
+        let restart = false;
         for i in 0..conflicts.len() {
             let conflicts_tmp = conflicts.to_vec();
             let conflict = &mut conflicts[i];
@@ -1173,20 +1175,14 @@ impl PatchLocator {
                 .saturating_add(extra_tail)
                 .min(self.merged_local_lines.len());
 
-            let is_out_of_order = (i > 0
-                && conflict.local_start < conflicts_tmp[i - 1].local_start)
+            let is_out_of_order = (i > 0 && conflict.local_start < conflicts_tmp[i - 1].local_end)
                 || (i + 1 < conflicts_tmp.len()
-                    && conflict.local_start > conflicts_tmp[i + 1].local_start);
-
-            if is_out_of_order {
-                restart = true;
-                break;
-            }
+                    && conflict.local_end > conflicts_tmp[i + 1].local_start);
+            assert!(!is_out_of_order);
         }
 
         if restart {
             log::debug!("Conflicts out of order, sorting and relocating");
-            conflicts.sort_by_key(|c| c.local_start);
             return self.relocate_conflicts(conflicts);
         }
 
