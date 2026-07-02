@@ -1074,9 +1074,11 @@ impl PatchLocator {
                 self.merged_local_lines.len()
             };
             let tail_margin = (next_new_local_start - conflict.local_end).saturating_sub(1);
+            let raw_prev_new_local_end = prev_new_local_end;
             let prev_new_local_end = prev_new_local_end
                 .saturating_sub(head)
                 .max(conflict.local_start.saturating_sub(Self::MAX_SCAN));
+            let raw_next_new_local_start = next_new_local_start;
             let next_new_local_start = next_new_local_start
                 .saturating_add(tail)
                 .min(conflict.local_end.saturating_add(Self::MAX_SCAN))
@@ -1131,7 +1133,7 @@ impl PatchLocator {
                     let start = conflict
                         .local_end
                         .saturating_sub(Self::MAX_BASE_SCAN)
-                        .max(prev_new_local_end);
+                        .max(raw_prev_new_local_end);
                     let end = conflict.local_end;
                     if !self.relocate_base(conflict, start..end, true)? {
                         self.relocate_remote(conflict, start..end, true)?;
@@ -1143,7 +1145,7 @@ impl PatchLocator {
                         .local_start
                         .saturating_add(Self::MAX_BASE_SCAN)
                         .min(self.merged_local_lines.len())
-                        .min(next_new_local_start);
+                        .min(raw_next_new_local_start);
                     if !self.relocate_base(conflict, start..end, false)? {
                         self.relocate_remote(conflict, start..end, false)?;
                     }
@@ -1510,8 +1512,10 @@ impl PatchLocator {
         };
         let offset = range.start + offset;
         if reverse {
-            self.update_conflict_code(conflict, offset, conflict.local_end);
-        } else {
+            if offset < conflict.local_start {
+                self.update_conflict_code(conflict, offset, conflict.local_end);
+            }
+        } else if offset > conflict.local_end {
             self.update_conflict_code(conflict, conflict.local_start, offset);
         }
         Ok(true)
