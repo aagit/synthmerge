@@ -798,7 +798,7 @@ impl Bench {
     }
 
     fn __stripped(&self, s: &str) -> String {
-        s.split_whitespace().collect::<Vec<_>>().join(" ")
+        s.split_whitespace().collect::<Vec<_>>().join("")
     }
 
     fn aligned(&self, resolved: &str, expected: &str) -> bool {
