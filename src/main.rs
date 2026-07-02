@@ -12,6 +12,7 @@ mod config;
 mod conflict_resolver;
 mod git_utils;
 mod lmdb_cache;
+mod lmdb_cache_main;
 mod logger;
 mod patch_locator;
 mod prob;
@@ -33,10 +34,29 @@ impl Args {
     }
 }
 
+fn import_cache(args: &Args) -> Result<bool> {
+    if let Some(import_path) = &args.import_cache {
+        use crate::lmdb_cache_main;
+        let cache_path = args
+            .get_cache_path()
+            .ok_or_else(|| anyhow::anyhow!("Cache must be enabled to import cache"))?;
+        let cache = lmdb_cache_main::create_from_path(&cache_path, false)?;
+        cache.import_from_path(import_path)?;
+        println!("Cache imported successfully.");
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     logger::log_init();
     let args = Args::parse();
+
+    // If import_cache is provided, import cache and exit
+    if import_cache(&args)? {
+        return Ok(());
+    }
 
     // Load configuration
     let config_path = shellexpand::full(&args.config_path)?;

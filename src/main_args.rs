@@ -52,6 +52,10 @@ struct Args {
     )]
     cache_overwrite: bool,
 
+    /// Import an LMDB cache into the current cache database
+    #[arg(long = "import-cache", conflicts_with = "no_cache")]
+    import_cache: Option<String>,
+
     /// Automatically resolve conflicts and update the git index.
     #[arg(long = "vibe", default_value = "false")]
     vibe: bool,

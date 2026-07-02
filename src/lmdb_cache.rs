@@ -25,12 +25,17 @@ pub trait PatchLocatorCache {
 }
 
 pub struct LmdbCacheImpl {
-    lmdb_env: lmdb::Environment,
-    lmdb_db: lmdb::Database,
+    pub(crate) lmdb_env: lmdb::Environment,
+    pub(crate) lmdb_db: lmdb::Database,
     overwrite: bool,
 }
 
 impl LmdbCacheImpl {
+    pub const API_CACHE_DB: &'static str = "api_cache_v1";
+    pub const PATCH_LOCATOR_CACHE_DB: &'static str = "patch_locator_cache_v1";
+    pub const DB_NAMES: &'static [&'static str] =
+        &[Self::API_CACHE_DB, Self::PATCH_LOCATOR_CACHE_DB];
+
     pub fn new(lmdb_env: lmdb::Environment, lmdb_db: lmdb::Database, overwrite: bool) -> Self {
         LmdbCacheImpl {
             lmdb_env,
@@ -91,18 +96,33 @@ impl LmdbCacheImpl {
             .map(|data| String::from_utf8_lossy(&data).to_string())
     }
 
-    fn create_env(path: &str) -> Result<lmdb::Environment> {
+    pub(crate) fn create_env_internal(path: &str, readonly: bool) -> Result<lmdb::Environment> {
         let dir = Path::new(path);
-        if !dir.exists() {
+        let mut flags = lmdb::EnvironmentFlags::NO_META_SYNC | lmdb::EnvironmentFlags::NO_TLS;
+        if readonly {
+            flags |= lmdb::EnvironmentFlags::READ_ONLY;
+        } else if !dir.exists() {
             std::fs::create_dir_all(dir).expect("Failed to create cache directory");
         }
-        let env = lmdb::Environment::new()
-            .set_max_dbs(2)
+
+        let mut builder = lmdb::Environment::new();
+        builder
+            .set_max_dbs(Self::DB_NAMES.len() as u32)
             .set_map_size(32 * 1024 * 1024 * 1024)
-            .set_flags(lmdb::EnvironmentFlags::NO_META_SYNC | lmdb::EnvironmentFlags::NO_TLS)
-            .open_with_permissions(dir, 0o600)
-            .expect("open lmdb env");
+            .set_flags(flags);
+
+        let env = if readonly {
+            builder.open(dir).expect("open readonly lmdb env")
+        } else {
+            builder
+                .open_with_permissions(dir, 0o600)
+                .expect("open lmdb env")
+        };
         Ok(env)
+    }
+
+    fn create_env(path: &str) -> Result<lmdb::Environment> {
+        Self::create_env_internal(path, false)
     }
 
     fn create_db(env: &lmdb::Environment, name: Option<&str>) -> Result<lmdb::Database> {
@@ -130,7 +150,7 @@ impl ApiCache for LmdbCacheImpl {
     }
 
     fn create_from_path(path: &str, overwrite: bool) -> Result<Self> {
-        Self::create_from_path(Some("api_cache_v1"), path, overwrite)
+        Self::create_from_path(Some(Self::API_CACHE_DB), path, overwrite)
     }
 }
 
@@ -156,7 +176,7 @@ impl PatchLocatorCache for LmdbCacheImpl {
     }
 
     fn create_from_path(path: &str, overwrite: bool) -> Result<Self> {
-        Self::create_from_path(Some("patch_locator_cache_v1"), path, overwrite)
+        Self::create_from_path(Some(Self::PATCH_LOCATOR_CACHE_DB), path, overwrite)
     }
 }
 
