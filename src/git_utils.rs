@@ -125,7 +125,7 @@ impl GitUtils {
         cache_path: Option<String>,
         cache_overwrite: bool,
         resolution_mode: ResolutionMode,
-        retries: usize,
+        max_retries: usize,
     ) -> Self {
         let git_root = Self::get_git_root_uncached().ok();
         let git_dir = Self::get_git_dir_uncached().ok();
@@ -143,8 +143,8 @@ impl GitUtils {
             blob_cache: HashMap::new(),
             lmdb_cache,
             resolution_mode,
-            retries,
-            max_retries: retries,
+            retries: 0,
+            max_retries,
         }
     }
 
@@ -159,13 +159,13 @@ impl GitUtils {
     /// Retry logic: decrement retries and adjust context lines based
     /// on resolution mode
     pub fn can_retry(&mut self) -> bool {
-        if self.retries == 0 {
+        if self.retries >= self.max_retries {
             return false;
         }
 
-        self.retries -= 1;
-        let extra: u32 = if self.retries < self.max_retries / 2 {
-            (self.max_retries - self.retries).try_into().unwrap()
+        self.retries += 1;
+        let extra: u32 = if self.retries > self.max_retries / 2 {
+            self.retries.try_into().unwrap()
         } else {
             1
         };
@@ -993,7 +993,7 @@ impl GitUtils {
 
         // Process each file
         for (file_path, file_conflicts) in &conflicts_by_file {
-            if self.retries > 0 && retry_files.contains(*file_path) {
+            if self.retries < self.max_retries && retry_files.contains(*file_path) {
                 println!("Will retry file: {}", file_path);
                 needs_retry = true;
                 continue;
