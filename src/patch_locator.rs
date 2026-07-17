@@ -426,7 +426,7 @@ impl PatchLocator {
     const MAX_SCAN: usize = 2000;
     const MAX_BASE_SCAN: usize = 100;
     const MAX_BASE_DISTANCE: f64 = 0.1;
-    const DIFF3_CONTEXT_LINES: usize = 3;
+    const MARKERS_CONTEXT_LINES: usize = 3;
 
     // https://github.com/rust-lang/rust-clippy/issues/1576
     #[allow(clippy::too_many_arguments)]
@@ -1048,7 +1048,7 @@ impl PatchLocator {
 
         conflicts.sort_by_key(|c| c.local_start);
 
-        let restart = false;
+        let mut restart = false;
         for i in 0..conflicts.len() {
             let conflicts_tmp = conflicts.to_vec();
             let conflict = &mut conflicts[i];
@@ -1058,102 +1058,175 @@ impl PatchLocator {
             assert!(conflict.local_end >= conflict.local_start);
 
             let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
-            let head_context = hunks.first().unwrap().get_head_context();
-            let tail_context = hunks.last().unwrap().get_tail_context();
-            // println!("head\n{}", head_context.join(""));
-            // println!("tail\n{}", tail_context.join(""));
-            let head = head_context.len();
-            let tail = tail_context.len();
+
             let prev_new_local_end = if i > 0 {
                 conflicts_tmp[i - 1].local_end
             } else {
                 0
             };
-            let head_margin = (conflict.local_start - prev_new_local_end).saturating_sub(1);
             let next_new_local_start = if i + 1 < conflicts_tmp.len() {
                 conflicts_tmp[i + 1].local_start
             } else {
                 self.merged_local_lines.len()
             };
-            let tail_margin = (next_new_local_start - conflict.local_end).saturating_sub(1);
-            let raw_prev_new_local_end = prev_new_local_end;
-            let prev_new_local_end = prev_new_local_end
-                .saturating_sub(head)
-                .max(conflict.local_start.saturating_sub(Self::MAX_SCAN));
-            let raw_next_new_local_start = next_new_local_start;
-            let next_new_local_start = next_new_local_start
-                .saturating_add(tail)
-                .min(conflict.local_end.saturating_add(Self::MAX_SCAN))
-                .min(self.merged_local_lines.len());
-            let scan_range = next_new_local_start - prev_new_local_end;
-            let head_scan_range = conflict.local_start - prev_new_local_end;
-            let tail_scan_range = next_new_local_start - conflict.local_end;
 
             let orig_local_start = conflict.local_start;
             let orig_local_end = conflict.local_end;
 
-            if head >= Self::DIFF3_CONTEXT_LINES || tail >= Self::DIFF3_CONTEXT_LINES {
-                let mut head_found = false;
-                let mut tail_found = false;
-                if head >= Self::DIFF3_CONTEXT_LINES
-                    && tail >= Self::DIFF3_CONTEXT_LINES
-                    && head_margin > 0
-                    && tail_margin > 0
-                    && scan_range > head
-                    && scan_range > tail
-                {
-                    let found = self.relocate_both(
-                        conflict,
-                        (prev_new_local_end, next_new_local_start),
-                        &head_context,
-                        &tail_context,
-                    )?;
-                    head_found = found;
-                    tail_found = found;
-                } else if head >= Self::DIFF3_CONTEXT_LINES
-                    && head_margin > 0
-                    && head_scan_range > head
-                {
-                    head_found = self.relocate_head(
-                        conflict,
-                        prev_new_local_end,
-                        conflict.local_start,
-                        &head_context,
-                    )?;
-                } else if tail >= Self::DIFF3_CONTEXT_LINES
-                    && tail_margin > 0
-                    && tail_scan_range > tail
-                {
-                    tail_found = self.relocate_tail(
-                        conflict,
-                        conflict.local_end,
-                        next_new_local_start,
-                        &tail_context,
-                    )?;
-                }
-                if !head_found {
-                    let start = conflict
-                        .local_end
-                        .saturating_sub(Self::MAX_BASE_SCAN)
-                        .max(raw_prev_new_local_end);
-                    let end = conflict.local_end;
-                    if !self.relocate_base(conflict, start..end, true)? {
-                        self.relocate_remote(conflict, start..end, true)?;
-                    }
-                }
-                if !tail_found {
-                    let start = conflict.local_start;
-                    let end = conflict
-                        .local_start
-                        .saturating_add(Self::MAX_BASE_SCAN)
-                        .min(self.merged_local_lines.len())
-                        .min(raw_next_new_local_start);
-                    if !self.relocate_base(conflict, start..end, false)? {
-                        self.relocate_remote(conflict, start..end, false)?;
-                    }
-                }
-            };
+            let mut min_local_start = usize::MAX;
+            let mut max_local_end = 0;
 
+            assert!(!hunks.is_empty());
+
+            for hunk in &hunks {
+                let mut temp_conflict = conflict.clone();
+                temp_conflict.conflict_raw_patch = Some(hunk.to_string());
+
+                let head_context = hunk.get_head_context();
+                let tail_context = hunk.get_tail_context();
+
+                let head = head_context.len();
+                let tail = tail_context.len();
+
+                let head_margin =
+                    (temp_conflict.local_start - prev_new_local_end).saturating_sub(1);
+                let tail_margin =
+                    (next_new_local_start - temp_conflict.local_end).saturating_sub(1);
+
+                let raw_prev_new_local_end = prev_new_local_end;
+                let adjusted_prev_new_local_end = prev_new_local_end
+                    .saturating_sub(head)
+                    .max(temp_conflict.local_start.saturating_sub(Self::MAX_SCAN));
+                let raw_next_new_local_start = next_new_local_start;
+                let adjusted_next_new_local_start = next_new_local_start
+                    .saturating_add(tail)
+                    .min(temp_conflict.local_end.saturating_add(Self::MAX_SCAN))
+                    .min(self.merged_local_lines.len());
+
+                let head_scan_range = temp_conflict.local_start - adjusted_prev_new_local_end;
+                let tail_scan_range = adjusted_next_new_local_start - temp_conflict.local_end;
+
+                if head >= Self::MARKERS_CONTEXT_LINES || tail >= Self::MARKERS_CONTEXT_LINES {
+                    let mut head_found = false;
+                    let mut tail_found = false;
+
+                    if head >= Self::MARKERS_CONTEXT_LINES && tail >= Self::MARKERS_CONTEXT_LINES {
+                        let orig_start = temp_conflict.local_start;
+                        let orig_end = temp_conflict.local_end;
+                        let (start, end) = if hunks.len() == 1 {
+                            (
+                                orig_start.saturating_sub(Self::MAX_SCAN),
+                                orig_end
+                                    .saturating_add(Self::MAX_SCAN)
+                                    .min(self.merged_local_lines.len()),
+                            )
+                        } else {
+                            (adjusted_prev_new_local_end, adjusted_next_new_local_start)
+                        };
+                        let found = self.relocate_both(
+                            &mut temp_conflict,
+                            (start, end),
+                            &head_context,
+                            &tail_context,
+                        )?;
+
+                        if found {
+                            let out_of_bounds = temp_conflict.local_start < prev_new_local_end
+                                || temp_conflict.local_end > next_new_local_start;
+
+                            if out_of_bounds {
+                                let mut overlaps = false;
+                                for (j, other_conflict) in conflicts_tmp.iter().enumerate() {
+                                    if j == i {
+                                        continue;
+                                    }
+                                    if Self::ranges_overlap(
+                                        temp_conflict.local_start,
+                                        temp_conflict.local_end,
+                                        other_conflict.local_start,
+                                        other_conflict.local_end,
+                                        true,
+                                    ) {
+                                        overlaps = true;
+                                        break;
+                                    }
+                                }
+
+                                if overlaps {
+                                    temp_conflict.local_start = orig_start;
+                                    temp_conflict.local_end = orig_end;
+                                } else {
+                                    head_found = true;
+                                    tail_found = true;
+                                    restart = true;
+                                }
+                            } else {
+                                head_found = true;
+                                tail_found = true;
+                            }
+                        }
+                    }
+
+                    if !head_found && !tail_found {
+                        if head > 0 && head_margin > 0 && head_scan_range > head {
+                            let local_start = temp_conflict.local_start;
+                            head_found = self.relocate_head(
+                                &mut temp_conflict,
+                                adjusted_prev_new_local_end,
+                                local_start,
+                                &head_context,
+                            )?;
+                        } else if tail > 0 && tail_margin > 0 && tail_scan_range > tail {
+                            let local_end = temp_conflict.local_end;
+                            tail_found = self.relocate_tail(
+                                &mut temp_conflict,
+                                local_end,
+                                adjusted_next_new_local_start,
+                                &tail_context,
+                            )?;
+                        }
+                    }
+
+                    if !head_found && head > 0 {
+                        let start = temp_conflict
+                            .local_end
+                            .saturating_sub(Self::MAX_BASE_SCAN)
+                            .max(raw_prev_new_local_end);
+                        let end = temp_conflict.local_end;
+                        if !self.relocate_base(&mut temp_conflict, start..end, true)? {
+                            self.relocate_remote(&mut temp_conflict, start..end, true)?;
+                        }
+                    }
+                    if !tail_found && tail > 0 {
+                        let start = temp_conflict.local_start;
+                        let end = temp_conflict
+                            .local_start
+                            .saturating_add(Self::MAX_BASE_SCAN)
+                            .min(self.merged_local_lines.len())
+                            .min(raw_next_new_local_start);
+                        if !self.relocate_base(&mut temp_conflict, start..end, false)? {
+                            self.relocate_remote(&mut temp_conflict, start..end, false)?;
+                        }
+                    }
+                }
+
+                min_local_start = min_local_start.min(temp_conflict.local_start);
+                max_local_end = max_local_end.max(temp_conflict.local_end);
+
+                if restart {
+                    break;
+                }
+            }
+
+            self.update_conflict_code(conflict, min_local_start, max_local_end);
+
+            if restart {
+                log::debug!("Conflicts out of order, sorting and relocating");
+                return self.relocate_conflicts(conflicts);
+            }
+
+            let head_margin = (conflict.local_start - prev_new_local_end).saturating_sub(1);
+            let tail_margin = (next_new_local_start - conflict.local_end).saturating_sub(1);
             let extra_head = code_context_lines.min(head_margin) + extra_conflict_lines;
             let extra_tail = code_context_lines.min(tail_margin) + extra_conflict_lines;
 
@@ -1181,16 +1254,11 @@ impl PatchLocator {
             assert!(!is_out_of_order);
         }
 
-        if restart {
-            log::debug!("Conflicts out of order, sorting and relocating");
-            return self.relocate_conflicts(conflicts);
-        }
-
         Ok(())
     }
 
     fn calc_max_context_distance(&self, conflict: &Conflict, context: &[String]) -> f64 {
-        assert!(context.len() >= Self::DIFF3_CONTEXT_LINES);
+        assert!(!context.is_empty());
         if conflict.local_start != conflict.local_end {
             0.75
         } else {
