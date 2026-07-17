@@ -109,7 +109,7 @@ pub struct GitUtils {
     blob_cache: HashMap<String, Arc<String>>,
     lmdb_cache: Option<Arc<LmdbCacheImpl>>,
     resolution_mode: ResolutionMode,
-    retries: usize,
+    pub(crate) retries: usize,
     max_retries: usize,
 }
 
@@ -159,6 +159,7 @@ impl GitUtils {
     /// Retry logic: decrement retries and adjust context lines based
     /// on resolution mode
     pub fn can_retry(&mut self) -> bool {
+        let enable_relocation = self.retries == 0;
         if self.retries >= self.max_retries {
             return false;
         }
@@ -186,6 +187,10 @@ impl GitUtils {
                 true
             }
             ResolutionMode::VibeWithPatchLocator => {
+                if enable_relocation {
+                    println!("Retrying resolution with conflict relocation");
+                    return true;
+                }
                 println!(
                     "Retrying resolution with increased --extra-conflict-lines ({} -> {})",
                     self.context_lines.extra_conflict_lines,
@@ -402,6 +407,7 @@ impl GitUtils {
                             self.lmdb_cache.clone(),
                             self.context_lines,
                             max_context_size,
+                            self.retries > 0,
                         );
                         patch_locator.patch_locator(&mut conflicts)?;
                     }

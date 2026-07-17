@@ -599,6 +599,7 @@ impl Bench {
                 true,
                 args.get_cache_path(),
                 args.cache_overwrite,
+                false,
             );
 
             let resolved_conflicts = resolver.resolve_conflicts(&[conflict], &Vec::new()).await;

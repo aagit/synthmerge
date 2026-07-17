@@ -106,6 +106,7 @@ pub struct ConflictResolver<'a> {
     bench: bool,
     start_regex: Regex,
     end_regex: Regex,
+    reject_no_change: bool,
     lmdb_cache: Option<Arc<LmdbCacheImpl>>,
 }
 
@@ -133,6 +134,7 @@ impl<'a> ConflictResolver<'a> {
         bench: bool,
         cache_path: Option<String>,
         cache_overwrite: bool,
+        reject_no_change: bool,
     ) -> Self {
         let mut lmdb_cache: Option<Arc<LmdbCacheImpl>> = None;
         if let Some(ref path) = cache_path {
@@ -147,6 +149,7 @@ impl<'a> ConflictResolver<'a> {
             bench,
             start_regex: Regex::new(Self::REGEXP_PATCHED_CODE_START).unwrap(),
             end_regex: Regex::new(Self::REGEXP_PATCHED_CODE_END).unwrap(),
+            reject_no_change,
             lmdb_cache,
         }
     }
@@ -561,6 +564,12 @@ impl<'a> ConflictResolver<'a> {
                         if !Self::validate_resolved_version_not_patch(&resolved_version, conflict) {
                             log::warn!("Skipping {} - resolved version looks like a patch", model);
                             log::trace!("ResolvedContent:\n{}", resolved_version);
+                            record_error(&model, beam == 0 && multi == 0);
+                            continue;
+                        }
+
+                        if self.reject_no_change && resolved_version == conflict.conflict_code {
+                            log::warn!("Skipping {} - no change detected", model);
                             record_error(&model, beam == 0 && multi == 0);
                             continue;
                         }

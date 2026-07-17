@@ -418,6 +418,7 @@ pub struct PatchLocator {
     pub lmdb_cache: Option<Arc<LmdbCacheImpl>>,
     pub context_lines: ContextLines,
     pub max_context_size: u32,
+    pub conflict_relocation: bool,
 }
 
 impl PatchLocator {
@@ -426,7 +427,8 @@ impl PatchLocator {
     const MAX_SCAN: usize = 2000;
     const MAX_BASE_SCAN: usize = 100;
     const MAX_BASE_DISTANCE: f64 = 0.1;
-    const MARKERS_CONTEXT_LINES: usize = 3;
+    const MARKERS_CONTEXT_LINES: usize = 1;
+    const MISPLACED_CONTEXT_LINES: usize = 4;
 
     // https://github.com/rust-lang/rust-clippy/issues/1576
     #[allow(clippy::too_many_arguments)]
@@ -439,6 +441,7 @@ impl PatchLocator {
         lmdb_cache: Option<Arc<LmdbCacheImpl>>,
         context_lines: ContextLines,
         max_context_size: u32,
+        conflict_relocation: bool,
     ) -> Self {
         PatchLocator {
             header_regex: Regex::new(r"^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@").unwrap(),
@@ -450,6 +453,7 @@ impl PatchLocator {
             lmdb_cache,
             context_lines,
             max_context_size,
+            conflict_relocation,
         }
     }
 
@@ -1106,11 +1110,16 @@ impl PatchLocator {
                 let head_scan_range = temp_conflict.local_start - adjusted_prev_new_local_end;
                 let tail_scan_range = adjusted_next_new_local_start - temp_conflict.local_end;
 
-                if head >= Self::MARKERS_CONTEXT_LINES || tail >= Self::MARKERS_CONTEXT_LINES {
+                let markers_context_lines = if !self.conflict_relocation {
+                    Self::MISPLACED_CONTEXT_LINES
+                } else {
+                    Self::MARKERS_CONTEXT_LINES
+                };
+                if head >= markers_context_lines || tail >= markers_context_lines {
                     let mut head_found = false;
                     let mut tail_found = false;
 
-                    if head >= Self::MARKERS_CONTEXT_LINES && tail >= Self::MARKERS_CONTEXT_LINES {
+                    if head >= markers_context_lines && tail >= markers_context_lines {
                         let orig_start = temp_conflict.local_start;
                         let orig_end = temp_conflict.local_end;
                         let (start, end) = if hunks.len() == 1 {
@@ -1168,7 +1177,10 @@ impl PatchLocator {
                     }
 
                     if !head_found && !tail_found {
-                        if head > 0 && head_margin > 0 && head_scan_range > head {
+                        if head >= markers_context_lines
+                            && head_margin > 0
+                            && head_scan_range > head
+                        {
                             let local_start = temp_conflict.local_start;
                             head_found = self.relocate_head(
                                 &mut temp_conflict,
@@ -1176,7 +1188,10 @@ impl PatchLocator {
                                 local_start,
                                 &head_context,
                             )?;
-                        } else if tail > 0 && tail_margin > 0 && tail_scan_range > tail {
+                        } else if tail >= markers_context_lines
+                            && tail_margin > 0
+                            && tail_scan_range > tail
+                        {
                             let local_end = temp_conflict.local_end;
                             tail_found = self.relocate_tail(
                                 &mut temp_conflict,

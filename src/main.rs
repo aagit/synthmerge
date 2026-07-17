@@ -127,6 +127,7 @@ async fn main() -> Result<()> {
             false,
             args.get_cache_path(),
             args.cache_overwrite,
+            git_utils.retries == 0,
         );
         let resolved = resolver
             .resolve_conflicts(&conflicts, &prev_conflicts)
