@@ -424,7 +424,7 @@ impl PatchLocator {
     const MAX_RELOCATION_DISTANCE: f64 = 0.2;
     const MAX_BODY_LEN: usize = 1000;
     const MAX_SCAN: usize = 2000;
-    const MAX_BASE_SCAN: usize = 50;
+    const MAX_BASE_SCAN: usize = 100;
     const MAX_BASE_DISTANCE: f64 = 0.1;
     const DIFF3_CONTEXT_LINES: usize = 3;
 
