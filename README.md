@@ -356,6 +356,14 @@ Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6
   Error Rate: 0.00% (0/1129)
   Average tokens: 5907.26
 
+Model: Gemini 3.6 Flash (medium default) # reasoning_effort: medium
+  Accuracy: 69.35% (783/1129)
+  Accuracy (aligned): 73.96% (835/1129)
+  Accuracy (stripped): 77.33% (873/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 7537.06
+  Average duration: 9.70 s
+
 Model: Gemini 3.1 Pro (high default) # reasoning_effort: high
   Accuracy: 69.35% (783/1129)
   Accuracy (aligned): 73.25% (827/1129)
@@ -465,6 +473,14 @@ Model: Gemini 3.5 Flash (low default) # reasoning_effort: low
   Average tokens: 6316.99
   Average duration: 6.02 s
 
+Model: Gemini 3.6 Flash (default minimal) # reasoning_effort: minimal
+  Accuracy: 65.99% (745/1129)
+  Accuracy (aligned): 69.26% (782/1129)
+  Accuracy (stripped): 72.10% (814/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 5397.78
+  Average duration: 1.66 s
+
 Model: Claude Opus 4.7 (default)
   Accuracy: 65.90% (744/1129)
   Accuracy (aligned): 68.91% (778/1129)
@@ -496,6 +512,14 @@ Model: Claude Sonnet 4.5 (default)
   Error Rate: 0.27% (3/1129)
   Average tokens: 5735.29
   Average duration: 3.04 s
+
+Model: Claude Sonnet 5 (default adaptive) # thinking adaptive
+  Accuracy: 65.10% (735/1129)
+  Accuracy (aligned): 68.82% (777/1129)
+  Accuracy (stripped): 71.83% (811/1129)
+  Error Rate: 4.34% (49/1129)
+  Average tokens: 8071.57
+  Average duration: 7.09 s
 
 # temperature: 0.15 top_k: 20 top_p: 0.8 min_p: 0.00
 # llama.cpp vulkan enable_thinking: false
