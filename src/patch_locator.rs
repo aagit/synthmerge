@@ -786,7 +786,7 @@ impl PatchLocator {
     }
 
     fn convert_clean_hunk_offsets(&self, hunk: &mut Hunk, conflicts: &[Conflict]) {
-        let ml_line = hunk.remote_start.saturating_sub(1);
+        let ml_line = hunk.remote_start.saturating_sub(1) + hunk.get_head_context().len();
         let mut local_line = 0;
         let mut base_line = ml_line;
         let mut remote_line = ml_line;
