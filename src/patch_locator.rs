@@ -432,6 +432,7 @@ impl PatchLocator {
     const MAX_BASE_DISTANCE: f64 = 0.1;
     const MARKERS_CONTEXT_LINES: usize = 1;
     const MISPLACED_CONTEXT_LINES: usize = 4;
+    const EXTEND_CONFLICT_ON_CLEAN_MERGE: bool = true;
 
     // https://github.com/rust-lang/rust-clippy/issues/1576
     #[allow(clippy::too_many_arguments)]
@@ -911,52 +912,18 @@ impl PatchLocator {
     }
 
     fn merge_conflict_code(&self, current: &mut Conflict, next: &Conflict) {
-        if current.commit_type == CommitType::Conflict {
+        if current.commit_type.is_clean() && next.commit_type.is_clean() {
+            let gap = current.local_end..next.local_start;
+            for i in gap {
+                current.conflict_code.push_str(&self.merged_local_lines[i]);
+            }
+            current.conflict_code.push_str(&next.conflict_code);
+            current.local_end = next.local_end;
+        } else if current.commit_type.is_clean() && next.commit_type.is_conflict() {
+            current.conflict_code = next.conflict_code.clone();
             current.local_start = next.local_start;
             current.local_end = next.local_end;
-            current.conflict_code = next.conflict_code.clone();
-            return;
-        } else if next.commit_type == CommitType::Conflict {
-            return;
         }
-
-        let start = current.local_start;
-        assert_eq!(start, start.min(next.local_start));
-        let end = next.local_end.max(current.local_end);
-
-        let mut merged_lines = self.merged_local_lines[start..end].to_vec();
-        let mut offset: isize = 0;
-
-        let mut apply_splice = |conflict: &Conflict| {
-            assert_ne!(conflict.commit_type, CommitType::Conflict);
-            let conflict_lines: Vec<String> = conflict
-                .conflict_code
-                .split_inclusive('\n')
-                .map(|s| s.to_string())
-                .collect();
-
-            log::debug!(
-                "apply_splice: local_start={}, local_end={}, start={}, end={}, conflict_len={}",
-                conflict.local_start,
-                conflict.local_end,
-                start,
-                conflict.local_end,
-                conflict_lines.len()
-            );
-
-            let splice_start = (conflict.local_start as isize - start as isize + offset) as usize;
-            let splice_end = (conflict.local_end as isize - start as isize + offset) as usize;
-
-            offset += conflict_lines.len() as isize - (splice_end - splice_start) as isize;
-
-            merged_lines.splice(splice_start..splice_end, conflict_lines);
-        };
-
-        apply_splice(current);
-        apply_splice(next);
-
-        current.conflict_code = merged_lines.join("");
-        current.local_end = next.local_end;
     }
 
     fn merge_conflicts(&self, conflicts: &mut Vec<Conflict>) -> Result<()> {
@@ -1004,6 +971,20 @@ impl PatchLocator {
                     if current.commit_type.is_clean() && next.commit_type.is_conflict() {
                         current.conflict_raw_patch =
                             Some(next.conflict_raw_patch.as_ref().unwrap().clone());
+
+                        if !Self::EXTEND_CONFLICT_ON_CLEAN_MERGE {
+                            current.new_local_start = next.new_local_start;
+                            current.new_local_end = next.new_local_end;
+                        }
+
+                        current.hunks.clear();
+                    } else if current.commit_type.is_conflict() && next.commit_type.is_clean() {
+                        if !Self::EXTEND_CONFLICT_ON_CLEAN_MERGE {
+                            next.new_local_start = current.new_local_start;
+                            next.new_local_end = current.new_local_end;
+                        }
+
+                        next.hunks.clear();
                     } else if current.commit_type.is_conflict() && next.commit_type.is_conflict() {
                         current
                             .conflict_raw_patch
