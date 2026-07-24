@@ -993,13 +993,17 @@ impl GitUtils {
                 .push(conflict);
         }
 
+        let mut sorted_files: Vec<_> = conflicts_by_file.keys().copied().collect();
+        sorted_files.sort();
+
         let mut needs_retry = false;
         let mut recoverable = true;
         let mut assisted = false;
 
         // Process each file
-        for (file_path, file_conflicts) in &conflicts_by_file {
-            if self.retries < self.max_retries && retry_files.contains(*file_path) {
+        for file_path in sorted_files {
+            let file_conflicts = &conflicts_by_file[file_path];
+            if self.retries < self.max_retries && retry_files.contains(file_path) {
                 println!("Will retry file: {}", file_path);
                 needs_retry = true;
                 continue;
@@ -1023,7 +1027,7 @@ impl GitUtils {
                 assisted = true;
             } else {
                 needs_retry = true;
-                if !retry_files.contains(*file_path) {
+                if !retry_files.contains(file_path) {
                     recoverable = false;
                 }
             }
