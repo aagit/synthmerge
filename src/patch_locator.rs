@@ -47,6 +47,7 @@ pub struct Hunk {
     pub remote_start: usize,
     /// Length of the remote section (lines with ' ' or '+')
     pub remote_len: usize,
+    pub clean: bool,
 }
 
 impl std::fmt::Display for Hunk {
@@ -269,6 +270,7 @@ impl Hunk {
                             base_len: base_count,
                             remote_start: self.remote_start + skipped_remote,
                             remote_len: remote_count,
+                            clean: self.clean,
                         });
                     }
 
@@ -338,6 +340,7 @@ impl Hunk {
                 base_len: base_count,
                 remote_start: self.remote_start + skipped_remote,
                 remote_len: remote_count,
+                clean: self.clean,
             });
         }
 
@@ -458,7 +461,7 @@ impl PatchLocator {
     }
 
     /// Parses git diff output into a list of Hunk structures
-    pub fn diff_to_hunks(&self, diff_output: &str) -> Result<Vec<Hunk>> {
+    pub fn diff_to_hunks(&self, diff_output: &str, clean: bool) -> Result<Vec<Hunk>> {
         let mut hunks = Vec::new();
         let mut header = String::new();
         let mut body_lines: Vec<String> = Vec::new();
@@ -494,6 +497,7 @@ impl PatchLocator {
                 base_len: base_count,
                 remote_start,
                 remote_len: remote_count,
+                clean,
             })
         };
 
@@ -1061,7 +1065,7 @@ impl PatchLocator {
             assert!(conflict.commit_type == CommitType::Conflict);
             assert!(conflict.local_end >= conflict.local_start);
 
-            let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
+            let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap(), false)?;
 
             let prev_new_local_end = if i > 0 {
                 conflicts_tmp[i - 1].local_end
@@ -1572,7 +1576,7 @@ impl PatchLocator {
         range: std::ops::Range<usize>,
         reverse: bool,
     ) -> Result<bool> {
-        let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
+        let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap(), false)?;
         let mut lines = Vec::new();
         for hunk in &hunks {
             lines.extend(hunk.get_conflict_base()?);
@@ -1606,7 +1610,7 @@ impl PatchLocator {
         range: std::ops::Range<usize>,
         reverse: bool,
     ) -> Result<bool> {
-        let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap())?;
+        let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap(), false)?;
         let mut lines = Vec::new();
         for hunk in &hunks {
             lines.extend(hunk.get_conflict_remote()?);
@@ -1698,14 +1702,14 @@ impl PatchLocator {
 
     pub fn patch_locator(&self, conflicts: &mut Vec<Conflict>) -> Result<()> {
         assert!(!conflicts.is_empty());
-        let hunks = self.diff_to_hunks(&self.conflict_diff)?;
+        let hunks = self.diff_to_hunks(&self.conflict_diff, false)?;
         if hunks.is_empty() {
             anyhow::bail!("conflict_diff contains no hunks");
         }
         self.match_conflicting_hunks(conflicts, hunks)?;
         self.relocate_conflicts(conflicts)?;
 
-        let hunks = self.diff_to_hunks(&self.clean_diff)?;
+        let hunks = self.diff_to_hunks(&self.clean_diff, true)?;
         if !hunks.is_empty() {
             self.process_clean_hunks(conflicts, hunks)?;
         }
