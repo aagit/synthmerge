@@ -356,6 +356,14 @@ Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6
   Error Rate: 0.00% (0/1129)
   Average tokens: 5907.26
 
+Model: Claude Opus 5 (default adaptive) # thinking adaptive
+  Accuracy: 70.15% (792/1129)
+  Accuracy (aligned): 74.14% (837/1129)
+  Accuracy (stripped): 78.12% (882/1129)
+  Error Rate: 0.35% (4/1129)
+  Average tokens: 7384.59
+  Average duration: 5.91 s
+
 Model: Gemini 3.6 Flash (medium default) # reasoning_effort: medium
   Accuracy: 69.35% (783/1129)
   Accuracy (aligned): 73.96% (835/1129)
