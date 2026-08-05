@@ -433,6 +433,7 @@ impl PatchLocator {
     const MARKERS_CONTEXT_LINES: usize = 1;
     const MISPLACED_CONTEXT_LINES: usize = 4;
     const EXTEND_CONFLICT_ON_CLEAN_MERGE: bool = true;
+    const RELOCATE_BOTH_LENGTH_FACTOR: usize = 100;
 
     // https://github.com/rust-lang/rust-clippy/issues/1576
     #[allow(clippy::too_many_arguments)]
@@ -1120,6 +1121,9 @@ impl PatchLocator {
                             (start, end),
                             &head_context,
                             &tail_context,
+                            hunk.get_conflict_base()?
+                                .len()
+                                .max(hunk.get_conflict_remote()?.len()),
                         )?;
 
                         if found {
@@ -1414,7 +1418,17 @@ impl PatchLocator {
         (prev_local_end, next_local_start): (usize, usize),
         head_context: &[String],
         tail_context: &[String],
+        expected_lines: usize,
     ) -> Result<bool> {
+        if expected_lines == 0 {
+            return Err(anyhow::anyhow!(
+                "Relocation failed: expected_lines is zero for conflict in {} at [{},{})",
+                conflict.file_path,
+                conflict.local_start,
+                conflict.local_end
+            ));
+        }
+
         let max_context_distance = self.calc_max_context_distance(conflict, head_context);
         let (head_distances, offset) = match self.calc_distances(
             head_context,
@@ -1467,7 +1481,10 @@ impl PatchLocator {
                 for (j, &td) in tail_distances.iter().enumerate() {
                     let head_idx = prev_local_end + head_context_len + i;
                     let tail_idx = prev_local_end + j;
-                    if head_idx <= tail_idx {
+                    if head_idx <= tail_idx
+                        && tail_idx - head_idx <= expected_lines * Self::RELOCATE_BOTH_LENGTH_FACTOR
+                        && tail_idx - head_idx >= expected_lines / Self::RELOCATE_BOTH_LENGTH_FACTOR
+                    {
                         let sum = hd + td;
                         if sum < min_sum {
                             min_sum = sum;
