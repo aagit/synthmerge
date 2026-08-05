@@ -1308,7 +1308,7 @@ impl PatchLocator {
         let mut min_distance = f64::MAX;
         let mut offset = usize::MAX;
 
-        let total_iterations = range.len().saturating_sub(head_context_len);
+        let total_iterations = (range.len() + 1).saturating_sub(head_context_len);
         let mut distances = Vec::with_capacity(total_iterations);
 
         if total_iterations > 0 {
@@ -1383,7 +1383,10 @@ impl PatchLocator {
             } else {
                 distances
             };
-            assert_eq!(distances.len(), range.len() - head_context_len);
+            assert_eq!(
+                distances.len(),
+                (range.len() + 1).saturating_sub(head_context_len)
+            );
             let offset = offset + head_context_len;
             let offset = if tail { range.len() - offset } else { offset };
 
