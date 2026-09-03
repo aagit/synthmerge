@@ -11,6 +11,7 @@ import os
 # 1. Data Definition
 # Format: List of model names
 models = [
+    "Gemini 3.8 Flash (medium default)",
     "Gemini 3.7 Flash (medium default)",
     "Gemini 3.6 Flash (medium default)",
     "Gemini 3.5 Flash (medium default)",
@@ -177,7 +178,7 @@ def add_labels(bars):
     for bar in bars:
         height = bar.get_height()
         ax.text(
-            bar.get_x() + bar.get_width() / 100,
+            bar.get_x() - bar.get_width() / 2.5,
             height + 0.5,
             f"{height:.1f}",
             ha="center",

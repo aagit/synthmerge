@@ -38,6 +38,7 @@ Instead of relying on a single model, `synthmerge` runs a **parallel inference e
   Simultaneously queries multiple AI models to resolve conflicts:
   - [Patchpal-backend](https://gitlab.com/patchpal-ai/patchpal-backend) (fine-tuned specifically for conflict resolution)
   - Self-hosted open-weight open source LLMs with OpenAI-compatible endpoints (llama.cpp/vLLM)
+  - OpenAI (via OpenAI API)
   - Gemini (via OpenAI-compatible API)
   - Claude (via Anthropic API)
 
@@ -348,11 +349,19 @@ The following statistics were generated using the `synthmerge_bench` tool on a C
 
 This measurement used only new test data never exposed to the model during the fine tuning process.
 
-![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260827.jpg)
+![Benchmark Results](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge_bench-20260902.jpg)
 
 ### The Numbers
 
 ```
+Model: Gemini 3.8 Flash (medium default)
+  Accuracy: 71.74% (810/1129)
+  Accuracy (aligned): 75.64% (854/1129)
+  Accuracy (stripped): 79.45% (897/1129)
+  Error Rate: 0.00% (0/1129)
+  Average tokens: 8129.60
+  Average duration: 8.75 s
+
 Model: AI Consensus: Gemini 3.1 Pro + Claude Opus 4.6 + Patchpal
   Accuracy: 71.74% (810/1129)
   Accuracy (aligned): 74.84% (845/1129)
