@@ -1516,6 +1516,7 @@ impl GitUtils {
                         let c1 = xy.chars().nth(1);
                         if (c0 == Some('D') && c1 == Some('U'))
                             || (c0 == Some('U') && c1 == Some('D'))
+                            || (c0 == Some('D') && c1 == Some('D'))
                         {
                             let path = parts[10];
                             // Run git rm on this file
