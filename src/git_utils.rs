@@ -1517,6 +1517,7 @@ impl GitUtils {
                         if (c0 == Some('D') && c1 == Some('U'))
                             || (c0 == Some('U') && c1 == Some('D'))
                             || (c0 == Some('D') && c1 == Some('D'))
+                            || (c0 == Some('A') && c1 == Some('U'))
                         {
                             let path = parts[10];
                             // Run git rm on this file
@@ -1533,9 +1534,7 @@ impl GitUtils {
                                 ));
                             }
                             self.unresolved_deleted_files.insert(path.to_string());
-                        } else if (c0 == Some('U') && c1 == Some('A'))
-                            || (c0 == Some('A') && c1 == Some('U'))
-                        {
+                        } else if c0 == Some('U') && c1 == Some('A') {
                             let path = parts[10];
                             self.git_update_index(Some(path))?;
                             self.unresolved_added_files.insert(path.to_string());
