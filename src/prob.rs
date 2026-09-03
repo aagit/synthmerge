@@ -49,7 +49,7 @@ pub fn logprob(json: &Value, perplexity: &mut Vec<String>) -> Option<f64> {
     let patched_code_start = &format!("{}\n", ConflictResolver::PATCHED_CODE_START);
     let patched_code_end = ConflictResolver::PATCHED_CODE_END;
     let start_pos = all_tokens.find(patched_code_start)? + patched_code_start.len();
-    let end_pos = all_tokens.find(patched_code_end)?;
+    let end_pos = all_tokens[start_pos..].find(patched_code_end)? + start_pos;
 
     for (i, token_logprob) in content_logprobs.iter().enumerate() {
         // Extract logprob value
