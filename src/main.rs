@@ -170,7 +170,7 @@ async fn main() -> Result<()> {
             conflicts,
             &resolved_conflicts,
             &resolved_errors.retry_files,
-            config.get_all_endpoints().len(),
+            config.get_all_endpoints(),
         );
     }
 

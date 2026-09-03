@@ -927,7 +927,7 @@ static inline struct feat *get_special_something(double option, struct device *d
         conflicts: Vec<Conflict>,
         resolved_conflicts: &[ResolvedConflict],
         retry_files: &HashSet<String>,
-        nr_endpoints: usize,
+        endpoints: &[EndpointConfig],
     ) -> Vec<ResolvedConflict> {
         // Group resolved conflicts by (file_path, local_start)
         let mut resolved_by_key: HashMap<(String, usize), Vec<ResolvedConflict>> = HashMap::new();
@@ -961,10 +961,13 @@ static inline struct feat *get_special_something(double option, struct device *d
             if !resolved_by_key.contains_key(key) {
                 continue;
             }
-            // Check if all endpoints have a solution for this conflict
+            // Check if all required endpoints have a solution for this conflict
             let resolved_list = &resolved_by_key[key];
             let mut has_all_endpoints = true;
-            for endpoint_idx in 0..nr_endpoints {
+            for (endpoint_idx, endpoint) in endpoints.iter().enumerate() {
+                if !endpoint.primary {
+                    continue;
+                }
                 if !resolved_list.iter().any(|r| r.endpoint == endpoint_idx) {
                     has_all_endpoints = false;
                     break;
