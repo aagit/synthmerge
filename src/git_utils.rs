@@ -112,6 +112,7 @@ pub struct GitUtils {
     pub(crate) retries: usize,
     max_retries: usize,
     continue_op: bool,
+    allow_empty: bool,
     assisted: bool,
     assisted_conflicts: Vec<ResolvedConflict>,
     resolved_files: HashSet<String>,
@@ -135,6 +136,7 @@ impl GitUtils {
         resolution_mode: ResolutionMode,
         max_retries: usize,
         continue_op: bool,
+        allow_empty: bool,
     ) -> Self {
         let git_root = Self::get_git_root_uncached().ok();
         let git_dir = Self::get_git_dir_uncached().ok();
@@ -155,6 +157,7 @@ impl GitUtils {
             retries: 0,
             max_retries,
             continue_op,
+            allow_empty,
             assisted: false,
             assisted_conflicts: Vec::new(),
             resolved_files: HashSet::new(),
@@ -1144,6 +1147,8 @@ impl GitUtils {
             None => return Ok(false),
         };
 
+        assert_eq!(self.in_rebase, operation.command == "rebase");
+
         // Restore context lines before continuing
         self.restore_context_lines(context_lines);
 
@@ -1154,47 +1159,53 @@ impl GitUtils {
         self.git_add_delete_unmerged()?;
 
         // Function to commit and continue operation
-        if operation.command == "rebase" {
-            let message_path = Path::new(&git_dir).join(Self::REBASE_MESSAGE_FILE);
-            if !message_path.exists() {
-                log::warn!(
-                    "Rebase message file not found: {}",
-                    Self::REBASE_MESSAGE_FILE
-                );
-                return Ok(false);
-            }
-            let content = std::fs::read_to_string(&message_path)?;
-            let cleaned = content
-                .lines()
-                .filter(|line| !line.starts_with('#'))
-                .collect::<Vec<_>>()
-                .join("\n");
-            std::fs::write(&message_path, cleaned)?;
+        let merge_msg_path = self.get_merge_msg_path(&git_dir);
+        if !merge_msg_path.exists() {
+            log::warn!(
+                "message file not found: {}",
+                merge_msg_path.to_string_lossy()
+            );
+            return Ok(false);
+        }
+        let content = std::fs::read_to_string(&merge_msg_path)?;
+        let cleaned = content
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&merge_msg_path, cleaned)?;
 
-            // Commit the changes
-            println!("Committing changes");
-            let output = GitCommand::new("git")
-                .args(["commit", "--no-edit", "-F", &message_path.to_string_lossy()])
-                .output()
-                .context("Failed to execute git commit --no-edit")?;
+        let before_head = std::fs::read_to_string(&operation.path)
+            .with_context(|| format!("Failed to read {}", operation.file))?
+            .trim()
+            .to_string();
 
-            if !output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if !stdout.contains("nothing to commit")
-                    && !stdout.contains("nothing added to commit")
-                {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(anyhow::anyhow!("Git commit --no-edit failed: {}", stderr));
-                }
+        // Commit the changes
+        println!("Committing changes");
+        let mut commit_args = vec!["commit", "--no-edit", "-F"];
+        let merge_msg_path = merge_msg_path.to_string_lossy();
+        commit_args.push(&merge_msg_path);
+        if self.allow_empty {
+            commit_args.push("--allow-empty");
+        }
+        let output = GitCommand::new("git")
+            .args(&commit_args)
+            .output()
+            .context("Failed to execute git commit --no-edit")?;
+
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if !stdout.contains("nothing to commit") && !stdout.contains("nothing added to commit")
+            {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(anyhow::anyhow!("Git commit --no-edit failed: {}", stderr));
+            } else {
+                println!("Nothing to commit");
             }
         }
 
         let mut subcmd = "--continue";
         loop {
-            let before_head = std::fs::read_to_string(&operation.path)
-                .with_context(|| format!("Failed to read {}", operation.file))?
-                .trim()
-                .to_string();
             println!("Executing git {} {}", operation.command, subcmd);
             let output = GitCommand::new("git")
                 .args(vec![&operation.command, subcmd])
@@ -1210,9 +1221,16 @@ impl GitUtils {
                 ))?;
 
             if !output.status.success() {
-                if String::from_utf8_lossy(&output.stderr).contains("git commit --allow-empty") {
+                if String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .any(|line| line.contains("--skip\" to skip this patch"))
+                {
                     subcmd = "--skip";
                     continue;
+                }
+
+                if !operation.path.exists() {
+                    return Ok(false);
                 }
 
                 if !output.stderr.is_empty() {
@@ -1658,18 +1676,22 @@ impl GitUtils {
         }
     }
 
+    /// Get the path to the merge message file based on the current operation
+    fn get_merge_msg_path(&self, git_dir: &str) -> PathBuf {
+        if self.in_rebase {
+            Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE)
+        } else {
+            Path::new(git_dir).join(Self::MERGE_MSG_FILE)
+        }
+    }
+
     /// Update the git merge message to include Assisted-by line
     fn update_merge_message(&mut self, files_status: bool, show_models: bool) -> Result<()> {
         if !self.assisted {
             return Ok(());
         }
-        let git_dir = self.git_dir.as_ref().unwrap();
 
-        let merge_msg_path = if self.in_rebase {
-            Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE)
-        } else {
-            Path::new(git_dir).join(Self::MERGE_MSG_FILE)
-        };
+        let merge_msg_path = self.get_merge_msg_path(self.git_dir.as_ref().unwrap());
         let merge_msg_content = match fs::read_to_string(&merge_msg_path) {
             Ok(content) => content,
             Err(_) => {
@@ -1793,19 +1815,7 @@ impl GitUtils {
                 .to_string();
 
             // Check if it's a rebase
-            if operation.command == "rebase" {
-                // Also check if the rebase message file exists
-                let rebase_msg_path = Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE);
-                if rebase_msg_path.exists() {
-                    self.in_rebase = true;
-                }
-                if !self.in_rebase {
-                    log::warn!(
-                        "Rebase message file not found: {}",
-                        Self::REBASE_MESSAGE_FILE
-                    );
-                }
-            }
+            self.in_rebase = operation.command == "rebase";
 
             Some(content)
         } else {
@@ -1843,6 +1853,20 @@ impl GitUtils {
                         path,
                     });
                 }
+            }
+        }
+
+        if let Some(ref operation) = retval
+            && operation.command == "rebase"
+        {
+            // Also check if the rebase message file exists
+            let rebase_msg_path = Path::new(git_dir).join(Self::REBASE_MESSAGE_FILE);
+            if !rebase_msg_path.exists() {
+                log::warn!(
+                    "Rebase message file not found: {}",
+                    Self::REBASE_MESSAGE_FILE
+                );
+                return Ok(None);
             }
         }
 

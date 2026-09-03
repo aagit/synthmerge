@@ -64,6 +64,14 @@ struct Args {
     #[arg(long = "continue", requires = "vibe", default_value = "false")]
     continue_op: bool,
 
+    /// Allow empty commits when continuing cherry-pick, rebase, revert, or merge operations
+    #[arg(
+        long = "allow-empty",
+        requires = "continue_op",
+        default_value = "false"
+    )]
+    allow_empty: bool,
+
     /// Use conflict markers instead of patch locator for vibe resolution
     /// This restricts the vibe mode to the capabilities of the interactive mode
     #[arg(long = "with-markers", default_value = "false")]

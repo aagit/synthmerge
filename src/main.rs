@@ -91,6 +91,7 @@ async fn main() -> Result<()> {
         resolution_mode,
         args.retries as usize,
         args.continue_op,
+        args.allow_empty,
     );
 
     // Try to cherry-pick with diff3 mode

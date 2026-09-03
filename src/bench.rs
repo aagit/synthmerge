@@ -508,6 +508,7 @@ impl Bench {
             ResolutionMode::Interactive,
             0,
             false,
+            false,
         );
 
         // Load existing checkpoint
