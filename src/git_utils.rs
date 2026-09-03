@@ -1524,7 +1524,7 @@ impl GitUtils {
             // Parse unmerged entries (format: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>)
             if line.starts_with('u') {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 10 {
+                if parts.len() >= 11 {
                     let xy = parts[1];
                     // Check if our state is deleted (D) and their state is updated (U)
                     // or our state is updated (U) and their state is deleted (D)
