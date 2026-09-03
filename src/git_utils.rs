@@ -300,7 +300,7 @@ impl GitUtils {
 
             // Parse unmerged entries (format: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>)
             if line.starts_with("u UU") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
+                let parts: Vec<&str> = line.splitn(11, ' ').collect();
                 if parts.len() >= 11 {
                     // let (base_blob, remote_blob) = (parts[7].to_string(), parts[9].to_string());
                     let (local_blob, file_path) = (parts[8].to_string(), parts[10].to_string());
@@ -1523,7 +1523,7 @@ impl GitUtils {
 
             // Parse unmerged entries (format: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>)
             if line.starts_with('u') {
-                let parts: Vec<&str> = line.split_whitespace().collect();
+                let parts: Vec<&str> = line.splitn(11, ' ').collect();
                 if parts.len() >= 11 {
                     let xy = parts[1];
                     // Check if our state is deleted (D) and their state is updated (U)
