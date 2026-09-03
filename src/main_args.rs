@@ -56,7 +56,7 @@ struct Args {
     #[arg(long = "import-cache", conflicts_with = "no_cache")]
     import_cache: Option<String>,
 
-    /// Automatically resolve conflicts and update the git index.
+    /// Automatically resolve conflicts and update the git index
     #[arg(long = "vibe", default_value = "false")]
     vibe: bool,
 
@@ -64,8 +64,8 @@ struct Args {
     #[arg(long = "continue", requires = "vibe", default_value = "false")]
     continue_op: bool,
 
-    /// Use conflict markers instead of patch locator for vibe resolution.
-    /// This restricts the vibe mode to the capabilities of the interactive mode.
+    /// Use conflict markers instead of patch locator for vibe resolution
+    /// This restricts the vibe mode to the capabilities of the interactive mode
     #[arg(long = "with-markers", default_value = "false")]
     with_markers: bool,
 }
