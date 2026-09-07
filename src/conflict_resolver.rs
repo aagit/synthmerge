@@ -978,6 +978,14 @@ static inline struct feat *get_special_something(double option, struct device *d
             }
         }
 
+        for r in &resolved_for_keys {
+            log::debug!(
+                "keep_solved_conflicts: endpoint: {}, local_start: {}, local_end: {}",
+                r.endpoint,
+                r.conflict.local_start,
+                r.conflict.local_end
+            );
+        }
         resolved_for_keys
     }
 }
