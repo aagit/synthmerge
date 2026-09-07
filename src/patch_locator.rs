@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR AGPL-3.0-or-later
 // Copyright (C) 2026  Red Hat, Inc.
 
-use crate::conflict_resolver::{CommitType, Conflict, Snippet};
+use crate::conflict_resolver::{CommitType, Conflict, ResolvedConflict, Snippet};
 use crate::git_utils::ContextLines;
 use crate::lmdb_cache::{LmdbCacheImpl, PatchLocatorCache};
 use anyhow::Result;
@@ -1064,7 +1064,11 @@ impl PatchLocator {
         Ok(())
     }
 
-    fn relocate_conflicts(&self, conflicts: &mut [Conflict]) -> Result<()> {
+    fn relocate_conflicts(
+        &self,
+        conflicts: &mut [Conflict],
+        prev_conflicts: &[ResolvedConflict],
+    ) -> Result<()> {
         let extra_conflict_lines = self.context_lines.extra_conflict_lines as usize;
         let code_context_lines = self.context_lines.code_context_lines as usize;
 
@@ -1086,6 +1090,23 @@ impl PatchLocator {
             // Clean commit types can only be extended
             assert!(conflict.commit_type == CommitType::Conflict);
             assert!(conflict.local_end >= conflict.local_start);
+
+            conflict.conflict_relocation = self.conflict_relocation;
+            for prev_conflict in prev_conflicts {
+                if prev_conflict.conflict.file_path == conflict.file_path
+                    && conflict
+                        .hunks
+                        .iter()
+                        .all(|hunk| prev_conflict.conflict.hunks.contains(hunk))
+                {
+                    conflict.conflict_relocation = prev_conflict.conflict.conflict_relocation;
+                }
+            }
+            let markers_context_lines = if !conflict.conflict_relocation {
+                Self::MISPLACED_CONTEXT_LINES
+            } else {
+                Self::MARKERS_CONTEXT_LINES
+            };
 
             let hunks = self.diff_to_hunks(conflict.conflict_raw_patch.as_ref().unwrap(), false)?;
             assert_eq!(hunks.len(), 1);
@@ -1140,11 +1161,6 @@ impl PatchLocator {
                 let head_scan_range = temp_conflict.local_start - adjusted_prev_local_end;
                 let tail_scan_range = adjusted_next_local_start - temp_conflict.local_end;
 
-                let markers_context_lines = if !self.conflict_relocation {
-                    Self::MISPLACED_CONTEXT_LINES
-                } else {
-                    Self::MARKERS_CONTEXT_LINES
-                };
                 if head >= markers_context_lines || tail >= markers_context_lines {
                     let mut head_found = false;
                     let mut tail_found = false;
@@ -1282,7 +1298,7 @@ impl PatchLocator {
                     conflict.local_end
                 );
                 log::debug!("Conflicts out of order, sorting and relocating");
-                return self.relocate_conflicts(conflicts);
+                return self.relocate_conflicts(conflicts, prev_conflicts);
             }
 
             let head_margin = (conflict.local_start - prev_local_end).saturating_sub(1);
@@ -1770,14 +1786,18 @@ impl PatchLocator {
         Ok(())
     }
 
-    pub fn patch_locator(&self, conflicts: &mut Vec<Conflict>) -> Result<()> {
+    pub fn patch_locator(
+        &self,
+        conflicts: &mut Vec<Conflict>,
+        prev_conflicts: &[ResolvedConflict],
+    ) -> Result<()> {
         assert!(!conflicts.is_empty());
         let hunks = self.diff_to_hunks(&self.conflict_diff, false)?;
         if hunks.is_empty() {
             anyhow::bail!("conflict_diff contains no hunks");
         }
         self.match_conflicting_hunks(conflicts, hunks)?;
-        self.relocate_conflicts(conflicts)?;
+        self.relocate_conflicts(conflicts, prev_conflicts)?;
 
         let hunks = self.diff_to_hunks(&self.clean_diff, true)?;
         if !hunks.is_empty() {

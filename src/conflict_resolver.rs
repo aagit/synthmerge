@@ -72,6 +72,7 @@ pub struct Conflict {
     pub merged_local_lines: Arc<Vec<String>>,
     pub code_snippets: Arc<Vec<Snippet>>,
     pub hunks: Vec<Hunk>,
+    pub conflict_relocation: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

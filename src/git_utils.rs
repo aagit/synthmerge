@@ -430,7 +430,7 @@ impl GitUtils {
                             max_context_size,
                             self.retries > 0,
                         );
-                        patch_locator.patch_locator(&mut conflicts)?;
+                        patch_locator.patch_locator(&mut conflicts, prev_conflicts)?;
                     }
 
                     for conflict in &mut conflicts {
