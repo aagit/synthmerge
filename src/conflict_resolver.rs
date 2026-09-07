@@ -173,18 +173,38 @@ impl<'a> ConflictResolver<'a> {
             // Check if we have a previous resolved conflict that matches this one
             let mut skip_ai_resolution = false;
             for prev_conflict in prev_resolved_conflicts {
-                for (endpoint_index, _) in endpoints.iter().enumerate() {
-                    if prev_conflict.conflict.file_path == conflict.file_path
-                        && prev_conflict.conflict.local_start == conflict.local_start
-                        && prev_conflict.conflict.local_end == conflict.local_end
-                        && prev_conflict.endpoint == endpoint_index
-                    {
-                        resolved_conflicts.push(prev_conflict.clone());
-                        skip_ai_resolution = true;
-                    }
+                if prev_conflict.conflict.file_path == conflict.file_path
+                    && prev_conflict.conflict.local_start == conflict.local_start
+                    && prev_conflict.conflict.local_end == conflict.local_end
+                {
+                    resolved_conflicts.push(prev_conflict.clone());
+                    skip_ai_resolution = true;
                 }
             }
             if skip_ai_resolution {
+                for (endpoint_index, endpoint) in endpoints.iter().enumerate() {
+                    let count = resolved_conflicts
+                        .iter()
+                        .filter(|r| {
+                            r.conflict.file_path == conflict.file_path
+                                && r.conflict.local_start == conflict.local_start
+                                && r.conflict.local_end == conflict.local_end
+                                && r.endpoint == endpoint_index
+                        })
+                        .count();
+                    assert!(
+                        if endpoint.primary {
+                            count == 1
+                        } else {
+                            count <= 1
+                        },
+                        "endpoint {} in {}:{}->{}",
+                        endpoint.name,
+                        conflict.file_path,
+                        conflict.start_line,
+                        conflict.local_start
+                    );
+                }
                 let conflict_info = format!(
                     "Skipping resolved conflict {} of {} in {}:{}->{}",
                     conflict_index + 1,
