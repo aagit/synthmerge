@@ -1068,6 +1068,14 @@ impl PatchLocator {
         let extra_conflict_lines = self.context_lines.extra_conflict_lines as usize;
         let code_context_lines = self.context_lines.code_context_lines as usize;
 
+        for conflict in conflicts.iter() {
+            log::debug!(
+                "pre relocate conflicts: {:?} {}-{}",
+                conflict.commit_type,
+                conflict.local_start,
+                conflict.local_end
+            );
+        }
         conflicts.sort_by_key(|c| c.local_start);
 
         let mut restart = false;
@@ -1264,6 +1272,15 @@ impl PatchLocator {
             self.update_conflict_code(conflict, min_local_start, max_local_end);
 
             if restart {
+                log::debug!(
+                    "Relocated conflict out of order in {}:{}: [{},{}) -> [{},{})",
+                    conflict.file_path,
+                    conflict.start_line,
+                    orig_local_start,
+                    orig_local_end,
+                    conflict.local_start,
+                    conflict.local_end
+                );
                 log::debug!("Conflicts out of order, sorting and relocating");
                 return self.relocate_conflicts(conflicts);
             }
@@ -1297,6 +1314,14 @@ impl PatchLocator {
             assert!(!is_out_of_order);
         }
 
+        for conflict in conflicts.iter() {
+            log::debug!(
+                "post relocate conflicts: {:?} {}-{}",
+                conflict.commit_type,
+                conflict.local_start,
+                conflict.local_end
+            );
+        }
         Ok(())
     }
 
