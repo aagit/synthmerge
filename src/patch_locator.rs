@@ -1619,8 +1619,9 @@ impl PatchLocator {
         let offset = prev_local_end + offset;
         if offset < conflict.local_start {
             self.update_conflict_code(conflict, offset, conflict.local_end);
+            return Ok(true);
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn relocate_tail(
@@ -1650,8 +1651,9 @@ impl PatchLocator {
         let offset = prev_local_end + offset;
         if offset > conflict.local_end {
             self.update_conflict_code(conflict, conflict.local_start, offset);
+            return Ok(true);
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn relocate_base(
@@ -1681,11 +1683,13 @@ impl PatchLocator {
         if reverse {
             if offset < conflict.local_start {
                 self.update_conflict_code(conflict, offset, conflict.local_end);
+                return Ok(true);
             }
         } else if offset > conflict.local_end {
             self.update_conflict_code(conflict, conflict.local_start, offset);
+            return Ok(true);
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn relocate_remote(
@@ -1715,11 +1719,13 @@ impl PatchLocator {
         if reverse {
             if offset < conflict.local_start {
                 self.update_conflict_code(conflict, offset, conflict.local_end);
+                return Ok(true);
             }
         } else if offset > conflict.local_end {
             self.update_conflict_code(conflict, conflict.local_start, offset);
+            return Ok(true);
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn regenerate_conflict(
