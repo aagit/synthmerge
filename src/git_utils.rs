@@ -1289,10 +1289,18 @@ impl GitUtils {
 
             // Use the first conflict in the group as the base
             let base_conflict = &group[0].conflict;
-            let total_tokens = if group.iter().any(|c| c.total_tokens.is_some()) {
+            let input_tokens = if group.iter().any(|c| c.input_tokens.is_some()) {
                 Some(
-                    group.iter().filter_map(|c| c.total_tokens).sum::<u64>()
-                        / group.iter().filter_map(|c| c.total_tokens).count() as u64,
+                    group.iter().filter_map(|c| c.input_tokens).sum::<u64>()
+                        / group.iter().filter_map(|c| c.input_tokens).count() as u64,
+                )
+            } else {
+                None
+            };
+            let output_tokens = if group.iter().any(|c| c.output_tokens.is_some()) {
+                Some(
+                    group.iter().filter_map(|c| c.output_tokens).sum::<u64>()
+                        / group.iter().filter_map(|c| c.output_tokens).count() as u64,
                 )
             } else {
                 None
@@ -1320,7 +1328,8 @@ impl GitUtils {
                     .map(|c| c.duration)
                     .max_by(|a, b| a.partial_cmp(b).unwrap())
                     .unwrap_or(0.0),
-                total_tokens,
+                input_tokens,
+                output_tokens,
                 logprob,
                 endpoint_index: group.iter().map(|c| c.endpoint_index).min().unwrap(),
                 deduplicated_conflicts: group
