@@ -41,6 +41,8 @@ pub struct EndpointConfig {
     pub use_backticks: bool,
     #[serde(flatten)]
     pub config: EndpointTypeConfig,
+    #[serde(default)]
+    pub fallbacks: Vec<EndpointConfig>,
 }
 
 fn default_timeout() -> u64 {
@@ -193,11 +195,51 @@ impl Config {
             ));
         }
 
+        Self::initialize_primary(&mut config.endpoints);
+
         // Trim whitespace from endpoint
         Self::trim_endpoint_whitespace(&mut config.endpoints);
 
         // Check that each endpoint has required fields
-        for (i, endpoint) in config.endpoints.iter().enumerate() {
+        Self::check_endpoints(&config.endpoints, path)?;
+
+        Self::check_seen_names(&config.endpoints, path)?;
+
+        Self::initialize_gcp_token_providers(&mut config.endpoints, path)?;
+
+        log::debug!("{:?}", config);
+
+        Ok(config)
+    }
+
+    fn check_seen_names(endpoints: &[EndpointConfig], path: &Path) -> Result<()> {
+        let mut seen_names = std::collections::HashSet::new();
+        for (i, endpoint) in endpoints.iter().enumerate() {
+            if !seen_names.insert(&endpoint.name) {
+                return Err(anyhow::anyhow!(
+                    "Endpoint {} in config file {} has duplicate name '{}'",
+                    i,
+                    path.display(),
+                    endpoint.name
+                ));
+            }
+            for (j, fallback) in endpoint.fallbacks.iter().enumerate() {
+                if !seen_names.insert(&fallback.name) {
+                    return Err(anyhow::anyhow!(
+                        "Endpoint {} in config file {} has duplicate fallback name '{}' at index {}",
+                        i,
+                        path.display(),
+                        fallback.name,
+                        j
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn check_endpoints(endpoints: &[EndpointConfig], path: &Path) -> Result<()> {
+        for (i, endpoint) in endpoints.iter().enumerate() {
             if endpoint.name.is_empty() {
                 return Err(anyhow::anyhow!(
                     "Endpoint {} in config file {} has empty name",
@@ -237,32 +279,22 @@ impl Config {
 
             // Validate OpenAI endpoint configuration
             Self::validate_endpoint(endpoint, i, path)?;
+            Self::check_endpoints(&endpoint.fallbacks, path)?;
         }
-
-        let mut seen_names = std::collections::HashSet::new();
-        for (i, endpoint) in config.endpoints.iter().enumerate() {
-            if !seen_names.insert(&endpoint.name) {
-                return Err(anyhow::anyhow!(
-                    "Endpoint {} in config file {} has duplicate name '{}'",
-                    i,
-                    path.display(),
-                    endpoint.name
-                ));
-            }
-        }
-
-        Self::validate_primary(&mut config.endpoints);
-
-        Self::initialize_gcp_token_providers(&mut config.endpoints, path)?;
-
-        log::debug!("{:?}", config);
-
-        Ok(config)
+        Ok(())
     }
 
-    fn validate_primary(endpoints: &mut [EndpointConfig]) {
-        if !endpoints.iter().any(|e| e.primary) {
-            endpoints.iter_mut().for_each(|e| e.primary = true);
+    fn initialize_primary(endpoints: &mut [EndpointConfig]) {
+        let has_primary = endpoints
+            .iter()
+            .any(|e| e.primary || e.fallbacks.iter().any(|f| f.primary));
+        if !has_primary {
+            for endpoint in endpoints.iter_mut() {
+                endpoint.primary = true;
+                for fallback in endpoint.fallbacks.iter_mut() {
+                    fallback.primary = true;
+                }
+            }
         }
     }
 
@@ -282,6 +314,7 @@ impl Config {
                     gcp_auth::GcpTokenProvider::from_file(gcp_service_account_file.clone()),
                 ));
             }
+            Self::initialize_gcp_token_providers(&mut endpoint.fallbacks, path)?;
         }
         Ok(())
     }
@@ -291,6 +324,7 @@ impl Config {
             endpoint.name = endpoint.name.trim().to_string();
             endpoint.url = endpoint.url.trim().to_string();
             Self::trim_variants_whitespace(&mut endpoint.config);
+            Self::trim_endpoint_whitespace(&mut endpoint.fallbacks);
         }
     }
 
@@ -313,6 +347,38 @@ impl Config {
         {
             // Check that all variant names are unique
             Self::validate_variants(variants, index, path, &endpoint.json, &endpoint.context)?;
+        }
+        Self::validate_fallbacks(&endpoint.fallbacks, index, path, endpoint.primary)?;
+        Ok(())
+    }
+
+    fn validate_fallbacks(
+        fallbacks: &[EndpointConfig],
+        endpoint_index: usize,
+        path: &Path,
+        endpoint_primary: bool,
+    ) -> Result<()> {
+        for (j, fallback) in fallbacks.iter().enumerate() {
+            if !fallback.fallbacks.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Endpoint {} in config file {} has fallback '{}' at index {} with nested fallbacks",
+                    endpoint_index,
+                    path.display(),
+                    fallback.name,
+                    j
+                ));
+            }
+            if fallback.primary != endpoint_primary {
+                return Err(anyhow::anyhow!(
+                    "Endpoint {} in config file {} has fallback '{}' at index {} with primary set to {} but endpoint primary is {}",
+                    endpoint_index,
+                    path.display(),
+                    fallback.name,
+                    j,
+                    fallback.primary,
+                    endpoint_primary
+                ));
+            }
         }
         Ok(())
     }
