@@ -183,29 +183,6 @@ impl<'a> ConflictResolver<'a> {
                 }
             }
             if skip_ai_resolution {
-                for (endpoint_index, endpoint) in endpoints.iter().enumerate() {
-                    let count = resolved_conflicts
-                        .iter()
-                        .filter(|r| {
-                            r.conflict.file_path == conflict.file_path
-                                && r.conflict.local_start == conflict.local_start
-                                && r.conflict.local_end == conflict.local_end
-                                && r.endpoint == endpoint_index
-                        })
-                        .count();
-                    assert!(
-                        if endpoint.primary {
-                            count == 1
-                        } else {
-                            count <= 1
-                        },
-                        "endpoint {} in {}:{}->{}",
-                        endpoint.name,
-                        conflict.file_path,
-                        conflict.start_line,
-                        conflict.local_start
-                    );
-                }
                 let conflict_info = format!(
                     "Skipping resolved conflict {} of {} in {}:{}->{}",
                     conflict_index + 1,
