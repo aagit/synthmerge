@@ -1322,7 +1322,7 @@ impl GitUtils {
                     .unwrap_or(0.0),
                 total_tokens,
                 logprob,
-                endpoint: group.iter().map(|c| c.endpoint).min().unwrap(),
+                endpoint_index: group.iter().map(|c| c.endpoint_index).min().unwrap(),
                 deduplicated_conflicts: group
                     .into_iter()
                     .filter(|x| {
@@ -1380,7 +1380,7 @@ impl GitUtils {
                     &result[pos].conflict.file_path,
                     result[pos].conflict.local_start,
                     num_models,
-                    result[pos].endpoint,
+                    result[pos].endpoint_index,
                     adapted,
                 ));
             }
@@ -1661,12 +1661,12 @@ impl GitUtils {
     fn assisted_by_line(&mut self, show_models: bool) -> String {
         if show_models && !self.assisted_conflicts.is_empty() {
             self.assisted_conflicts.sort_by(|a, b| {
-                a.endpoint
-                    .cmp(&b.endpoint)
+                a.endpoint_index
+                    .cmp(&b.endpoint_index)
                     .then_with(|| a.model.cmp(&b.model))
             });
             self.assisted_conflicts
-                .dedup_by(|a, b| a.endpoint == b.endpoint && a.model == b.model);
+                .dedup_by(|a, b| a.endpoint_index == b.endpoint_index && a.model == b.model);
             let models_str = Self::combine_model_names(
                 &self
                     .assisted_conflicts

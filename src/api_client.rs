@@ -109,14 +109,37 @@ impl ApiClient {
     }
 
     /// Query the AI endpoint with the given prompt
-    pub async fn query(&self, api_request: &ApiRequest) -> Result<ApiResponse> {
-        let response = match &self.endpoint.config {
+    pub async fn query(&self, api_request: &ApiRequest) -> Result<(ApiResponse, Option<usize>)> {
+        let result = self.query_endpoint(api_request).await;
+
+        let mut last_error = match result {
+            Ok(response) => {
+                if self.endpoint.fallbacks.is_empty()
+                    || !response.iter().flatten().all(Result::is_err)
+                {
+                    return Ok((response, None));
+                };
+                anyhow::anyhow!("All variants failed, trying fallbacks")
+            }
+            Err(e) => e,
+        };
+        for (fallback_index, fallback) in self.endpoint.fallbacks.iter().enumerate() {
+            let client = ApiClient::new(fallback.clone(), self.lmdb_cache.clone());
+            match client.query_endpoint(api_request).await {
+                Ok(response) => return Ok((response, Some(fallback_index))),
+                Err(e) => last_error = e,
+            }
+        }
+
+        Err(last_error)
+    }
+
+    async fn query_endpoint(&self, api_request: &ApiRequest) -> Result<ApiResponse> {
+        match &self.endpoint.config {
             EndpointTypeConfig::OpenAI { .. } => self.query_openai(api_request).await,
             EndpointTypeConfig::Patchpal { .. } => self.query_patchpal(api_request).await,
             EndpointTypeConfig::Anthropic { .. } => self.query_anthropic(api_request).await,
-        }?;
-
-        Ok(response)
+        }
     }
 
     async fn read_api_key(&self, api_key_file: &String) -> Result<String> {

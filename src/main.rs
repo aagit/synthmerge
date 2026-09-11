@@ -169,7 +169,7 @@ async fn main() -> Result<()> {
         for r in &resolved_conflicts {
             log::debug!(
                 "kept resolved_conflicts: endpoint: {}, local_start: {}, local_end: {}",
-                r.endpoint,
+                r.endpoint_index,
                 r.conflict.local_start,
                 r.conflict.local_end
             );

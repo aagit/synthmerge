@@ -678,7 +678,7 @@ impl Bench {
                 let first_conflict = &deduplicated_conflicts[0];
                 for dedup_conflict in &first_conflict.deduplicated_conflicts {
                     ai_consensus_model_names
-                        .insert((dedup_conflict.endpoint, dedup_conflict.model.clone()));
+                        .insert((dedup_conflict.endpoint_index, dedup_conflict.model.clone()));
                 }
                 TestResult {
                     entry_index: i,

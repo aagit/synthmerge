@@ -84,7 +84,7 @@ pub struct ResolvedConflict {
     pub total_tokens: Option<u64>,
     pub logprob: Option<f64>,
     pub deduplicated_conflicts: Vec<ResolvedConflict>,
-    pub endpoint: usize,
+    pub endpoint_index: usize,
     pub multi: Option<usize>,
     pub beam: Option<usize>,
     pub no_change: bool,
@@ -222,7 +222,6 @@ impl<'a> ConflictResolver<'a> {
                     continue;
                 }
                 let client = ApiClient::new(endpoint.clone(), self.lmdb_cache.clone());
-                let name = endpoint.name.clone();
                 let use_backticks = endpoint.use_backticks;
                 let message = self.create_message(&patch, &code, use_backticks);
                 let git_diff = self.create_git_diff(conflict, use_backticks);
@@ -237,7 +236,7 @@ impl<'a> ConflictResolver<'a> {
                 };
                 let handle = tokio::spawn(async move {
                     let result = client.query(&api_request).await;
-                    (result, name, endpoint_index)
+                    (result, endpoint_index)
                 });
                 futures.push(handle);
             }
@@ -247,13 +246,18 @@ impl<'a> ConflictResolver<'a> {
                 let (result, _, remaining) = select_all(futures).await;
                 futures = remaining;
                 match result {
-                    Ok((result, name, endpoint_index)) => {
+                    Ok((result, endpoint_index)) => {
+                        let (result, fallback) = match result {
+                            Ok((result, fallback)) => (Ok(result), fallback),
+                            Err(e) => (Err(e), None),
+                        };
+                        let endpoint = self.resolve_endpoint(endpoints, endpoint_index, fallback);
                         println!(
                             " - {}{}",
-                            name,
-                            self.print_api_response(&result, endpoints, endpoint_index)
+                            endpoint.name,
+                            self.print_api_response(&result, endpoint)
                         );
-                        results.push((result, endpoint_index))
+                        results.push((result, endpoint_index, fallback))
                     }
                     Err(e) => return Err(anyhow::anyhow!("Task failed: {}", e)),
                 }
@@ -271,18 +275,29 @@ impl<'a> ConflictResolver<'a> {
         Ok((resolved_conflicts, resolver_errors))
     }
 
+    fn resolve_endpoint<'b>(
+        &self,
+        endpoints: &'b [EndpointConfig],
+        endpoint_index: usize,
+        fallback: Option<usize>,
+    ) -> &'b EndpointConfig {
+        match fallback {
+            Some(fallback) => &endpoints[endpoint_index].fallbacks[fallback],
+            None => &endpoints[endpoint_index],
+        }
+    }
+
     fn print_api_response(
         &self,
         api_response: &Result<ApiResponse>,
-        endpoints: &[EndpointConfig],
-        endpoint_index: usize,
+        endpoint: &EndpointConfig,
     ) -> String {
         api_response
             .as_ref()
             .map(|r| {
                 let mut info = String::new();
                 for (variant, variants) in r.iter().enumerate() {
-                    self.get_variant_name(endpoints, endpoint_index, variant)
+                    self.get_variant_name(endpoint, variant)
                         .map(|x| info.push_str(&format!(" | {x}")));
                     for (beam, entry) in variants.iter().enumerate() {
                         if let Ok(entry) = entry {
@@ -324,14 +339,13 @@ impl<'a> ConflictResolver<'a> {
 
     fn get_model_name_multi(
         &self,
-        endpoints: &[EndpointConfig],
-        endpoint: usize,
+        endpoint: &EndpointConfig,
         variant: usize,
         beam: usize,
         multi: usize,
     ) -> String {
-        let variant_name = self.get_variant_name(endpoints, endpoint, variant);
-        let mut name = endpoints[endpoint].name.to_string();
+        let variant_name = self.get_variant_name(endpoint, variant);
+        let mut name = endpoint.name.to_string();
         let mut open = false;
         if let Some(variant_name) = *variant_name {
             open = true;
@@ -358,23 +372,11 @@ impl<'a> ConflictResolver<'a> {
         name
     }
 
-    fn get_model_name(
-        &self,
-        endpoints: &[EndpointConfig],
-        endpoint: usize,
-        variant: usize,
-        beam: usize,
-    ) -> String {
-        self.get_model_name_multi(endpoints, endpoint, variant, beam, 0)
+    fn get_model_name(&self, endpoint: &EndpointConfig, variant: usize, beam: usize) -> String {
+        self.get_model_name_multi(endpoint, variant, beam, 0)
     }
 
-    fn get_variant_name(
-        &self,
-        endpoints: &[EndpointConfig],
-        endpoint: usize,
-        variant: usize,
-    ) -> Box<Option<String>> {
-        let endpoint = &endpoints[endpoint];
+    fn get_variant_name(&self, endpoint: &EndpointConfig, variant: usize) -> Box<Option<String>> {
         match &endpoint.config {
             EndpointTypeConfig::OpenAI { variants, .. }
             | EndpointTypeConfig::Anthropic { variants, .. } => {
@@ -418,7 +420,7 @@ impl<'a> ConflictResolver<'a> {
         &self,
         resolved_conflicts: &mut Vec<ResolvedConflict>,
         resolver_errors: &mut ResolverErrors,
-        results: &Vec<(Result<ApiResponse>, usize)>,
+        results: &Vec<(Result<ApiResponse>, usize, Option<usize>)>,
         conflict: &Conflict,
         endpoints: &[EndpointConfig],
     ) {
@@ -428,18 +430,20 @@ impl<'a> ConflictResolver<'a> {
 
         // Validate that the content starts with head_context and ends with tail_context
         for result in results {
-            let endpoint = result.1;
+            let endpoint_index = result.1;
+            let fallback = result.2;
+            let endpoint = &endpoints[endpoint_index];
             let result = match &result.0 {
                 Ok(r) => r,
                 Err(e) => {
-                    let model = &endpoints[endpoint].name;
+                    let model = &endpoint.name;
                     log::error!("Skipping {} due to error: {}", model, e);
                     *resolver_errors.errors.entry(model.to_string()).or_insert(0) += 1;
                     continue;
                 }
             };
 
-            let primary = if endpoints[endpoint].primary { 1 } else { 0 };
+            let primary = if endpoint.primary { 1 } else { 0 };
 
             // Helper closure for error handling
             let mut record_error = |model: &str, retry: bool| {
@@ -454,7 +458,7 @@ impl<'a> ConflictResolver<'a> {
                     let api_response_entry = match api_response_entry {
                         Ok(api_response_entry) => api_response_entry,
                         Err(e) => {
-                            let model = self.get_model_name(endpoints, endpoint, variant, beam);
+                            let model = self.get_model_name(endpoint, variant, beam);
                             log::error!("Skipping {} - {}", model, e);
                             record_error(&model, false);
                             continue;
@@ -464,7 +468,7 @@ impl<'a> ConflictResolver<'a> {
                     let resolved_strings = match self.parse_response(&api_response_entry.response) {
                         Ok(resolved_strings) => resolved_strings,
                         Err(e) => {
-                            let model = self.get_model_name(endpoints, endpoint, variant, beam);
+                            let model = self.get_model_name(endpoint, variant, beam);
                             log::warn!("Skipping {} - {}", model, e);
                             record_error(&model, beam == 0);
                             continue;
@@ -475,8 +479,12 @@ impl<'a> ConflictResolver<'a> {
 
                     let mut seen_resolved = std::collections::HashMap::new();
                     for (multi, resolved_string) in resolved_strings.iter().enumerate() {
-                        let model =
-                            self.get_model_name_multi(endpoints, endpoint, variant, beam, multi);
+                        let model = self.get_model_name_multi(
+                            self.resolve_endpoint(endpoints, endpoint_index, fallback),
+                            variant,
+                            beam,
+                            multi,
+                        );
                         let mut resolved_version = resolved_string.to_string();
 
                         let mut found_context = false;
@@ -572,7 +580,7 @@ impl<'a> ConflictResolver<'a> {
                         }
 
                         // Check if this resolved_version is already in the results
-                        let key = (endpoint, resolved_version.clone());
+                        let key = (endpoint_index, resolved_version.clone());
                         if seen_resolved.contains_key(&key) {
                             log::debug!("Skipping {} - duplicate resolved conflict", model);
                             continue;
@@ -590,7 +598,7 @@ impl<'a> ConflictResolver<'a> {
                             total_tokens,
                             logprob,
                             deduplicated_conflicts: Vec::new(),
-                            endpoint,
+                            endpoint_index,
                             beam: Some(beam),
                             multi: Some(multi),
                             no_change,
