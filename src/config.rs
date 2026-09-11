@@ -225,6 +225,15 @@ impl Config {
                     path.display()
                 ));
             }
+            if endpoint.max_delay < endpoint.delay {
+                return Err(anyhow::anyhow!(
+                    "Endpoint {} in config file {} has max_delay ({}) less than delay ({})",
+                    i,
+                    path.display(),
+                    endpoint.max_delay,
+                    endpoint.delay
+                ));
+            }
 
             // Validate OpenAI endpoint configuration
             Self::validate_endpoint(endpoint, i, path)?;
