@@ -487,9 +487,20 @@ mod tests {
         let config_yaml = include_str!(concat!("../", env!("CARGO_PKG_NAME"), ".yaml"));
         let config: Config = serde_yaml::from_str(config_yaml).unwrap();
         assert_eq!(config.endpoints.len(), 13);
-        assert_eq!(config.endpoints[0].name, "Gemini 3.7 Flash");
+        assert_eq!(config.endpoints[0].name, "Gemini 3.8 Flash");
+        assert_eq!(
+            config.endpoints[0].fallbacks[0].name,
+            "fallback Gemini 3.7 Flash"
+        );
+        assert_eq!(config.endpoints[0].fallbacks.len(), 1);
         assert_eq!(config.endpoints[1].name, "Gemini 3.1 Pro");
-        assert_eq!(config.endpoints[2].name, "gpt-5.6-sol");
+        assert_eq!(config.endpoints[2].name, "gpt-6-aura");
+        assert_eq!(
+            config.endpoints[2].fallbacks[0].name,
+            "fallback gpt-5.6-sol"
+        );
+        assert_eq!(config.endpoints[2].fallbacks[1].name, "fallback gpt-5.5");
+        assert_eq!(config.endpoints[2].fallbacks.len(), 2);
         assert_eq!(config.endpoints[3].name, "gpt-5.5");
         assert_eq!(config.endpoints[4].name, "Claude Opus 5");
         assert_eq!(config.endpoints[5].name, "Vertex Claude Opus 5");

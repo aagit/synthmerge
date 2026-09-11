@@ -50,6 +50,11 @@ Instead of relying on a single model, `synthmerge` runs a **parallel inference e
   - Custom JSON parameters that can be injected into the request payload from the YAML configuration (either at the endpoint level or in each variant)
   - Number of beams for Patchpal AI endpoint (n_beams)
 
+- **Endpoint Fallbacks**  
+  Configure fallback endpoints to ensure high availability and redundancy:
+  - If all variants of an endpoint fail, synthmerge automatically queries the configured fallbacks in order
+  - Fallback endpoints are fully independent configurations, allowing different model types, authentication methods, or parameters
+
 - **Results Deduplication & Ranking**  
   Consolidates identical solutions and displays model and/or parameter variant agreement. If multiple models agree on a fix, that solution is ranked first.
 
@@ -246,6 +251,48 @@ endpoints:
     primary: true
 ```
 
+## 🔁 Endpoint Fallbacks
+
+The `fallbacks` list allows you to specify backup endpoints that are automatically used if the primary endpoint fails. This is useful for:
+
+- **High Availability**: Ensure conflict resolution continues even if one AI provider is down
+- **Safety Filters**: Bypass provider-specific safety filters, such as content recitation blocks or other cyber safeguards, by switching to an endpoint with different moderation policies
+
+### Fallback Behavior
+
+1. **Trigger**: Fallbacks are triggered only when **all variants** of the endpoint fail
+2. **Order**: Fallbacks are tried in the order they are listed in the configuration
+
+### Configuration Example
+
+```yaml
+endpoints:
+  - name: "Gemini 3.8 Flash"
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    type: "openai"
+    primary: true
+    api_key_file: "~/.keys/gemini.api_key"
+    json:
+      model: "gemini-3.8-flash"
+    fallbacks:
+      - name: "fallback Gemini 3.7 Flash"
+        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        type: "openai"
+        primary: true
+        api_key_file: "~/.keys/gemini.api_key"
+        json:
+          model: "gemini-3.7-flash"
+      - name: "fallback OpenAI gpt-6-aura"
+        url: "https://api.openai.com/v1/chat/completions"
+        type: "openai"
+        primary: true
+        api_key_file: "~/.keys/openai.api_key"
+        json:
+          model: "gpt-6-aura"
+```
+
+In this example, if all variants of "Gemini 3.8 Flash" fail (e.g., due to a content filter or service outage), synthmerge will try "fallback Gemini 3.7 Flash" first. If that also fails, it will try "fallback OpenAI gpt-6-aura".
+
 ## 🔤 Markdown Backtick Support
 
 Markdown backtick fences are enabled by default. However, if a specific model gets confused by the superflous fences they can be disabled:
@@ -334,7 +381,6 @@ A Fedora Copr package is available:
 > ![synthmerge-demo](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8.webm)
 > ![synthmerge-demo with ripgrep-edit](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8-ripgrep-edit.webm)
 > ![synthmerge-demo with vim](https://gitlab.com/aarcange/synthmerge-assets/-/raw/main/synthmerge-demo-0.1.8-vim.webm)
-
 ---
 
 ## 📊 Benchmark Statistics

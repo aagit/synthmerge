@@ -1,14 +1,23 @@
 endpoints:
 
-  - name: "Gemini 3.7 Flash"
+  - name: "Gemini 3.8 Flash"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     type: "openai"
     api_key_file: "~/.keys/gemini.api-key"
     primary: true
     json:
-      model: "gemini-3.7-flash"
+      model: "gemini-3.8-flash"
       #reasoning_effort: "high"
     #use_backticks: false
+    fallbacks:
+      - name: "fallback Gemini 3.7 Flash"
+        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        type: "openai"
+        api_key_file: "~/.keys/gemini.api-key"
+        json:
+          model: "gemini-3.7-flash"
+          #reasoning_effort: "high"
+        #use_backticks: false
 
   - name: "Gemini 3.1 Pro"
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -19,17 +28,39 @@ endpoints:
       model: "gemini-3.1-pro-preview"
       reasoning_effort: "medium"
 
-  - name: "gpt-5.6-sol"
+  - name: "gpt-6-aura"
     url: "https://api.openai.com/v1/chat/completions"
     type: "openai"
     api_key_file: "~/.keys/openai.api-key"
     primary: true
     json:
-      model: "gpt-5.6-sol"
+      model: "gpt-6-aura"
     variants:
       - name: "high"
         json:
           reasoning_effort: "high"
+    fallbacks:
+      - name: "fallback gpt-5.6-sol"
+        url: "https://api.openai.com/v1/chat/completions"
+        type: "openai"
+        api_key_file: "~/.keys/openai.api-key"
+        primary: true
+        json:
+          model: "gpt-5.6-sol"
+        variants:
+          - name: "high"
+            json:
+              reasoning_effort: "high"
+      - name: "fallback gpt-5.5"
+        url: "https://api.openai.com/v1/chat/completions"
+        type: "openai"
+        api_key_file: "~/.keys/openai.api-key"
+        json:
+          model: "gpt-5.5"
+        variants:
+          - name: "high"
+            json:
+              reasoning_effort: "high"
 
   - name: "gpt-5.5"
     url: "https://api.openai.com/v1/chat/completions"
@@ -54,6 +85,29 @@ endpoints:
         type: "adaptive"
     headers:
       anthropic-version: "2023-06-01"
+    fallbacks:
+      - name: "fallback Claude Opus 4.6"
+        url: "https://api.anthropic.com/v1/messages"
+        type: "anthropic"
+        x_api_key_file: "~/.keys/anthropic.api-key"
+        json:
+          model: "claude-opus-4.6"
+          max_tokens: 128000
+          thinking:
+            type: "adaptive"
+        headers:
+          anthropic-version: "2023-06-01"
+      - name: "fallback Claude Sonnet 5"
+        url: "https://api.anthropic.com/v1/messages"
+        type: "anthropic"
+        x_api_key_file: "~/.keys/anthropic.api-key"
+        json:
+          model: "claude-sonnet-5"
+          max_tokens: 128000
+          thinking:
+            type: "adaptive"
+        headers:
+          anthropic-version: "2023-06-01"
 
   - name: "Vertex Claude Opus 5"
     url: "https://aiplatform.googleapis.com/v1/projects/<project_id>/locations/global/publishers/anthropic/models/claude-opus-5@default:streamRawPredict" # replace <project_id>
