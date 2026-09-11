@@ -205,19 +205,19 @@ mod tests {
                         "content": [
                             {{
                                 "logprob": 0.0,
-				"token": "{}\n"
+                                "token": "{}\n"
                             }},
                             {{
                                 "logprob": -1.0,
-				"token": "2"
+                                "token": "2"
                             }},
                             {{
                                 "logprob": -2.0,
-				"token": " "
+                                "token": " "
                             }},
                             {{
                                 "logprob": -3.0,
-				"token": "{}"
+                                "token": "{}"
                             }}
                         ]
                     }}

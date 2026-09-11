@@ -213,9 +213,7 @@ impl ApiClient {
             chat.push(perplexity_search.clone());
         }
         let mut payload = if !*no_chat {
-            let mut payload = serde_json::json!({
-                "messages": [],
-            });
+            let mut payload = serde_json::json!({ "messages": [], });
             let messages = payload["messages"].as_array_mut().unwrap();
             for (i, msg) in chat.iter().enumerate().filter(|(_, s)| s.is_some()) {
                 let role = if i == 0 {
@@ -241,9 +239,7 @@ impl ApiClient {
                 .collect::<Vec<_>>()
                 .join("\n\n")
                 + "\n\n";
-            serde_json::json!({
-                "prompt": prompt
-            })
+            serde_json::json!({ "prompt": prompt })
         };
 
         self.apply_parameters(&mut payload, &self.endpoint.json)?;
@@ -369,29 +365,29 @@ impl ApiClient {
                     prob::logprob(&json_response, perplexity)
                 };
 
-		let input_tokens = json_response
+                let input_tokens = json_response
                     .get("usage")
                     .and_then(|usage| usage.get("prompt_tokens"))
                     .and_then(|tokens| tokens.as_u64());
 
-		let output_tokens = json_response
+                let output_tokens = json_response
                     .get("usage")
                     .and_then(|usage| usage.get("total_tokens"))
                     .and_then(|tokens|
-			      tokens.as_u64()
-			      .map(|total| total.saturating_sub(input_tokens.unwrap_or(0))));
+                              tokens.as_u64()
+                              .map(|total| total.saturating_sub(input_tokens.unwrap_or(0))));
 
-		let completion_tokens = json_response
-		    .get("usage")
+                let completion_tokens = json_response
+                    .get("usage")
                     .and_then(|usage| usage.get("completion_tokens"))
                     .and_then(|tokens| tokens.as_u64());
-		if completion_tokens != output_tokens {
-			log::error!(
-			    "Completion tokens ({:?}) don't match output_tokens ({:?})",
-			    completion_tokens,
-			    output_tokens
-			);
-		}
+                if completion_tokens != output_tokens {
+                    log::error!(
+                        "Completion tokens ({:?}) don't match output_tokens ({:?})",
+                        completion_tokens,
+                        output_tokens
+                    );
+                }
 
                 let mut response_entry = ApiResponseEntry {
                     response: content.to_string(),
@@ -490,7 +486,7 @@ impl ApiClient {
                     && error_type == "invalid_request_error"
                     && let Some(message) = error.get("message").and_then(|v| v.as_str())
                     && (message.contains("Request size exceeds model context window") ||
-			message.contains("prompt is too long"))
+                        message.contains("prompt is too long"))
                 {
                     log::warn!(
                         "Context size error for endpoint {}. Not retrying.",
@@ -555,8 +551,7 @@ impl ApiClient {
                     duration,
                 })
             },
-        )
-        .await
+        ).await
     }
 
     async fn query_anthropic(&self, request: &ApiRequest) -> Result<ApiResponse> {
@@ -677,9 +672,9 @@ impl ApiClient {
         );
 
         let payload = serde_json::json!({"jsonrpc": "2.0",
-					 "method": "inference",
-					 "params" : {"patch" : request.patch,
-						     "code" : request.code}});
+                                         "method": "inference",
+                                         "params" : {"patch" : request.patch,
+                                                     "code" : request.code}});
 
         let response_handler =
             |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponse> {
