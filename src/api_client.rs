@@ -30,7 +30,8 @@ pub struct ApiRequest {
 pub struct ApiResponseEntry {
     pub response: String,
     pub logprob: Option<f64>,
-    pub total_tokens: Option<u64>,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
     pub duration: f64,
 }
 
@@ -213,7 +214,7 @@ impl ApiClient {
         }
         let mut payload = if !*no_chat {
             let mut payload = serde_json::json!({
-                        "messages": [],
+                "messages": [],
             });
             let messages = payload["messages"].as_array_mut().unwrap();
             for (i, msg) in chat.iter().enumerate().filter(|(_, s)| s.is_some()) {
@@ -269,9 +270,8 @@ impl ApiClient {
             &payload,
             perplexity,
             |response_text: &str,
-             perplexity: &mut Vec<String>,
-             duration: f64|
-             -> Result<ApiResponseEntry> {
+            perplexity: &mut Vec<String>,
+            duration: f64| -> Result<ApiResponseEntry> {
                 // Parse JSON response to extract the content
                 let json_response: serde_json::Value = serde_json::from_str(response_text)
                     .map_err(|e| {
@@ -313,7 +313,7 @@ impl ApiClient {
                 if let Some(choices) = json_response.get("choices").and_then(|c| c.as_array())
                     && let Some(choice) = choices.first()
                     && let Some(finish_reason) =
-                        choice.get("finish_reason").and_then(|v| v.as_str())
+                    choice.get("finish_reason").and_then(|v| v.as_str())
                     && finish_reason == "content_filter: RECITATION"
                 {
                     log::warn!(
@@ -327,7 +327,7 @@ impl ApiClient {
                 if let Some(choices) = json_response.get("choices").and_then(|c| c.as_array())
                     && let Some(choice) = choices.first()
                     && let Some(finish_reason) =
-                        choice.get("finish_reason").and_then(|v| v.as_str())
+                    choice.get("finish_reason").and_then(|v| v.as_str())
                     && finish_reason != "stop"
                 {
                     log::warn!(
@@ -369,15 +369,35 @@ impl ApiClient {
                     prob::logprob(&json_response, perplexity)
                 };
 
-                let total_tokens = json_response
+		let input_tokens = json_response
+                    .get("usage")
+                    .and_then(|usage| usage.get("prompt_tokens"))
+                    .and_then(|tokens| tokens.as_u64());
+
+		let output_tokens = json_response
                     .get("usage")
                     .and_then(|usage| usage.get("total_tokens"))
+                    .and_then(|tokens|
+			      tokens.as_u64()
+			      .map(|total| total.saturating_sub(input_tokens.unwrap_or(0))));
+
+		let completion_tokens = json_response
+		    .get("usage")
+                    .and_then(|usage| usage.get("completion_tokens"))
                     .and_then(|tokens| tokens.as_u64());
+		if completion_tokens != output_tokens {
+			log::error!(
+			    "Completion tokens ({:?}) don't match output_tokens ({:?})",
+			    completion_tokens,
+			    output_tokens
+			);
+		}
 
                 let mut response_entry = ApiResponseEntry {
                     response: content.to_string(),
                     logprob,
-                    total_tokens,
+                    input_tokens,
+                    output_tokens,
                     duration,
                 };
                 if let Some(prefix) = &perplexity_search {
@@ -386,7 +406,7 @@ impl ApiClient {
                 Ok(response_entry)
             },
         )
-        .await
+            .await
     }
 
     async fn query_openai(&self, request: &ApiRequest) -> Result<ApiResponse> {
@@ -518,23 +538,20 @@ impl ApiClient {
                 let mut perplexity = Vec::<String>::new();
                 let logprob = prob::logprob(&json_response, &mut perplexity);
 
-                let total_tokens = json_response
+                let input_tokens = json_response
                     .get("usage")
                     .and_then(|usage| usage.get("input_tokens"))
-                    .and_then(|tokens| tokens.as_u64())
-                    .map(|input_tokens| {
-                        input_tokens
-                            + json_response
-                                .get("usage")
-                                .and_then(|usage| usage.get("output_tokens"))
-                                .and_then(|tokens| tokens.as_u64())
-                                .unwrap_or(0)
-                    });
+                    .and_then(|tokens| tokens.as_u64());
+                let output_tokens = json_response
+                    .get("usage")
+                    .and_then(|usage| usage.get("output_tokens"))
+                    .and_then(|tokens| tokens.as_u64());
 
                 Ok(ApiResponseEntry {
                     response: content.to_string(),
                     logprob,
-                    total_tokens,
+                    input_tokens,
+                    output_tokens,
                     duration,
                 })
             },
@@ -737,7 +754,8 @@ impl ApiClient {
                                 ConflictResolver::PATCHED_CODE_END
                             ),
                             logprob: s.1.ok(),
-                            total_tokens: None,
+                            input_tokens: None,
+                            output_tokens: None,
                             duration,
                         })
                     })

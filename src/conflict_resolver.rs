@@ -81,7 +81,8 @@ pub struct ResolvedConflict {
     pub resolved_version: String,
     pub model: String,
     pub duration: f64,
-    pub total_tokens: Option<u64>,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
     pub logprob: Option<f64>,
     pub deduplicated_conflicts: Vec<ResolvedConflict>,
     pub endpoint_index: usize,
@@ -307,27 +308,38 @@ impl<'a> ConflictResolver<'a> {
                                 String::new()
                             };
                             let duration_info = format!(" {:.1}s", entry.duration);
-                            let tokens_info = entry
-                                .total_tokens
-                                .map(|tokens| format!(" {} t", tokens))
+                            let input_tokens_info = entry
+                                .input_tokens
+                                .map(|tokens| format!(" {} it", tokens))
                                 .unwrap_or_default();
-                            let tokens_per_sec_info = entry
-                                .total_tokens
-                                .map(|tokens| {
-                                    if entry.duration > 0.0 {
-                                        format!(" {:.0} t/s", tokens as f64 / entry.duration)
-                                    } else {
-                                        String::new()
-                                    }
-                                })
+                            let output_tokens_info = entry
+                                .output_tokens
+                                .map(|tokens| format!(" {} ot", tokens))
                                 .unwrap_or_default();
+                            let tokens_per_sec_info = if (entry.input_tokens.is_some()
+                                || entry.output_tokens.is_some())
+                                && entry.duration > 0.0
+                            {
+                                let total = entry
+                                    .input_tokens
+                                    .unwrap_or(0)
+                                    .saturating_add(entry.output_tokens.unwrap_or(0));
+                                format!(" {:.0} t/s", total as f64 / entry.duration)
+                            } else {
+                                String::new()
+                            };
                             let logprob_info = entry
                                 .logprob
                                 .map(|logprob| format!(" {:.1}%", prob::logprob_to_prob(logprob)))
                                 .unwrap_or_default();
                             info.push_str(&format!(
-                                "{}{}{}{}{}",
-                                beam, duration_info, tokens_info, tokens_per_sec_info, logprob_info,
+                                "{}{}{}{}{}{}",
+                                beam,
+                                duration_info,
+                                input_tokens_info,
+                                output_tokens_info,
+                                tokens_per_sec_info,
+                                logprob_info,
                             ));
                         }
                     }
@@ -587,7 +599,8 @@ impl<'a> ConflictResolver<'a> {
                         }
                         seen_resolved.insert(key, model.clone());
 
-                        let total_tokens = api_response_entry.total_tokens;
+                        let input_tokens = api_response_entry.input_tokens;
+                        let output_tokens = api_response_entry.output_tokens;
                         let logprob = api_response_entry.logprob;
                         let duration = api_response_entry.duration;
                         local_resolved_conflicts.push(ResolvedConflict {
@@ -595,7 +608,8 @@ impl<'a> ConflictResolver<'a> {
                             resolved_version,
                             model,
                             duration,
-                            total_tokens,
+                            input_tokens,
+                            output_tokens,
                             logprob,
                             deduplicated_conflicts: Vec::new(),
                             endpoint_index,

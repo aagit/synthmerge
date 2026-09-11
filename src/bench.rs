@@ -30,7 +30,8 @@ struct TestResult {
     correct_aligned: bool,
     correct_stripped: bool,
     duration: f64,
-    tokens: Option<u64>,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
     logprob: Option<f64>,
     failed_patched_code: Option<String>,
     error: bool,
@@ -60,7 +61,8 @@ struct ModelStats {
     accuracy_aligned: f64,
     accuracy_stripped: f64,
     error_rate: f64,
-    avg_tokens: f64,
+    avg_input_tokens: f64,
+    avg_output_tokens: f64,
     avg_logprob: [f64; LogprobType::COUNT as usize],
     std_logprob: [f64; LogprobType::COUNT as usize],
     avg_duration: f64,
@@ -166,6 +168,7 @@ impl Bench {
         let mut model_correct_aligned = HashMap::new();
         let mut model_correct_stripped = HashMap::new();
         let mut model_tokens = HashMap::new();
+        let mut model_input_tokens = HashMap::new();
         let mut model_logprob = Vec::with_capacity(LogprobType::COUNT as usize);
         for _ in 0..LogprobType::COUNT as usize {
             model_logprob.push(HashMap::new());
@@ -190,11 +193,17 @@ impl Bench {
             if result.correct_stripped {
                 *model_correct_stripped.entry(model.clone()).or_insert(0) += 1;
             }
-            if let Some(tokens) = result.tokens {
+            if let Some(input_tokens) = result.input_tokens {
+                model_input_tokens
+                    .entry(model.clone())
+                    .or_insert_with(Vec::new)
+                    .push(input_tokens);
+            }
+            if let Some(output_tokens) = result.output_tokens {
                 model_tokens
                     .entry(model.clone())
                     .or_insert_with(Vec::new)
-                    .push(tokens);
+                    .push(output_tokens);
             }
             if let Some(logprob) = result.logprob {
                 model_logprob[LogprobType::Global as usize]
@@ -264,7 +273,12 @@ impl Bench {
             let error = model_errors.get(&model).copied().unwrap_or(0);
             let error_rate = error as f64 / total as f64;
 
-            let avg_tokens = model_tokens
+            let avg_input_tokens = model_input_tokens
+                .get(&model)
+                .map(|tokens| tokens.iter().sum::<u64>() as f64 / tokens.len() as f64)
+                .unwrap_or(f64::INFINITY);
+
+            let avg_output_tokens = model_tokens
                 .get(&model)
                 .map(|tokens| tokens.iter().sum::<u64>() as f64 / tokens.len() as f64)
                 .unwrap_or(f64::INFINITY);
@@ -394,7 +408,8 @@ impl Bench {
                     accuracy_aligned,
                     accuracy_stripped,
                     error_rate,
-                    avg_tokens,
+                    avg_input_tokens,
+                    avg_output_tokens,
                     avg_logprob,
                     std_logprob,
                     avg_duration,
@@ -446,8 +461,11 @@ impl Bench {
                     stats.total
                 );
             }
-            if stats.avg_tokens.is_finite() {
-                println!("  Average tokens: {:.2}", stats.avg_tokens);
+            if stats.avg_input_tokens.is_finite() {
+                println!("  Average input tokens: {:.2}", stats.avg_input_tokens);
+            }
+            if stats.avg_output_tokens.is_finite() {
+                println!("  Average output tokens: {:.2}", stats.avg_output_tokens);
             }
             if stats.avg_duration.is_normal() {
                 println!("  Average duration: {:.2} s", stats.avg_duration);
@@ -618,7 +636,8 @@ impl Bench {
                             correct_aligned: false,
                             correct_stripped: false,
                             duration: 0.0,
-                            tokens: None,
+                            input_tokens: None,
+                            output_tokens: None,
                             logprob: None,
                             failed_patched_code: None,
                             error: true,
@@ -639,7 +658,8 @@ impl Bench {
                             correct_stripped: self
                                 .stripped(&resolved_conflict.resolved_version, &entry.patched_code),
                             duration: resolved_conflict.duration,
-                            tokens: resolved_conflict.total_tokens,
+                            input_tokens: resolved_conflict.input_tokens,
+                            output_tokens: resolved_conflict.output_tokens,
                             logprob: resolved_conflict.logprob,
                             failed_patched_code: Self::generate_failed_patched_code(
                                 &resolved_conflict.resolved_version,
@@ -667,7 +687,8 @@ impl Bench {
                     correct_aligned: false,
                     correct_stripped: false,
                     duration: 0.0,
-                    tokens: None,
+                    input_tokens: None,
+                    output_tokens: None,
                     logprob: None,
                     failed_patched_code: None,
                     error: true,
@@ -689,7 +710,8 @@ impl Bench {
                     correct_stripped: self
                         .stripped(&first_conflict.resolved_version, &entry.patched_code),
                     duration: first_conflict.duration,
-                    tokens: first_conflict.total_tokens,
+                    input_tokens: first_conflict.input_tokens,
+                    output_tokens: first_conflict.output_tokens,
                     logprob: first_conflict.logprob,
                     failed_patched_code: Self::generate_failed_patched_code(
                         &first_conflict.resolved_version,
@@ -911,7 +933,8 @@ mod tests {
             correct_aligned: true,
             correct_stripped: true,
             duration: 0.0,
-            tokens: None,
+            input_tokens: None,
+            output_tokens: None,
             logprob: None,
             failed_patched_code: None,
             error: false,
@@ -928,7 +951,8 @@ mod tests {
         assert_eq!(result.correct_aligned, deserialized.correct_aligned);
         assert_eq!(result.correct_stripped, deserialized.correct_stripped);
         assert_eq!(result.duration, deserialized.duration);
-        assert_eq!(result.tokens, deserialized.tokens);
+        assert_eq!(result.input_tokens, deserialized.input_tokens);
+        assert_eq!(result.output_tokens, deserialized.output_tokens);
         assert_eq!(result.logprob, deserialized.logprob);
         assert_eq!(result.failed_patched_code, deserialized.failed_patched_code);
         assert_eq!(result.error, deserialized.error);
