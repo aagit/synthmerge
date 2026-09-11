@@ -1389,6 +1389,9 @@ impl GitUtils {
         // Sort by file, line, number of models (descending),
         // difference score for Clean (descending), and finally with
         // the original "endpoint" order
+        // In the case of a tie between variants of the same endpoint,
+        // the stable sort preserves the original order, prioritizing
+        // Variant 0 over later variants
         unique_conflicts.sort_by(|a, b| {
             a.1.cmp(b.1)
                 .then(a.2.cmp(&b.2))
