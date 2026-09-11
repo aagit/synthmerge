@@ -166,12 +166,15 @@ async fn main() -> Result<()> {
             break;
         }
 
-        prev_conflicts = ConflictResolver::keep_solved_conflicts(
-            conflicts,
-            &resolved_conflicts,
-            &resolved_errors.retry_files,
-            config.get_all_endpoints(),
-        );
+        for r in &resolved_conflicts {
+            log::debug!(
+                "kept resolved_conflicts: endpoint: {}, local_start: {}, local_end: {}",
+                r.endpoint,
+                r.conflict.local_start,
+                r.conflict.local_end
+            );
+        }
+        prev_conflicts = resolved_conflicts;
     }
 
     if !args.vibe {

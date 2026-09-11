@@ -423,7 +423,8 @@ impl<'a> ConflictResolver<'a> {
         endpoints: &[EndpointConfig],
     ) {
         let mut recoverable = [false, false];
-        let mut no_solutions = true;
+        let mut no_solutions = [true, true];
+        let mut local_resolved_conflicts = Vec::new();
 
         // Validate that the content starts with head_context and ends with tail_context
         for result in results {
@@ -581,7 +582,7 @@ impl<'a> ConflictResolver<'a> {
                         let total_tokens = api_response_entry.total_tokens;
                         let logprob = api_response_entry.logprob;
                         let duration = api_response_entry.duration;
-                        resolved_conflicts.push(ResolvedConflict {
+                        local_resolved_conflicts.push(ResolvedConflict {
                             conflict: conflict.clone(),
                             resolved_version,
                             model,
@@ -594,16 +595,22 @@ impl<'a> ConflictResolver<'a> {
                             multi: Some(multi),
                             no_change,
                         });
-                        no_solutions = false;
+                        if beam == 0 && multi == 0 {
+                            no_solutions[primary] = false;
+                        }
                     }
                 }
             }
         }
 
-        if recoverable[1] || (no_solutions && recoverable[0]) {
+        if (no_solutions[1] && recoverable[1])
+            || (no_solutions[1] && no_solutions[0] && recoverable[0])
+        {
             resolver_errors
                 .retry_files
                 .insert(conflict.file_path.clone());
+        } else {
+            resolved_conflicts.extend(local_resolved_conflicts);
         }
     }
 
@@ -914,77 +921,6 @@ static inline struct feat *get_special_something(double option, struct device *d
         } else {
             Ok(results)
         }
-    }
-
-    /// Keep only the conflicts that had a solution for all endpoints and are in retry_files.
-    /// Returns two vectors:
-    /// 1. The list of unique Conflict keys (file_name, local_start)
-    ///    that were successfully resolved.
-    /// 2. The list of ResolvedConflict for those conflicts.
-    pub fn keep_solved_conflicts(
-        conflicts: Vec<Conflict>,
-        resolved_conflicts: &[ResolvedConflict],
-        retry_files: &HashSet<String>,
-        endpoints: &[EndpointConfig],
-    ) -> Vec<ResolvedConflict> {
-        // Group resolved conflicts by (file_path, local_start)
-        let mut resolved_by_key: HashMap<(String, usize), Vec<ResolvedConflict>> = HashMap::new();
-        for resolved in resolved_conflicts.iter().filter(|r| {
-            (r.multi == Some(0) || r.multi.is_none()) && (r.beam == Some(0) || r.beam.is_none())
-        }) {
-            let key = (
-                resolved.conflict.file_path.clone(),
-                resolved.conflict.local_start,
-            );
-            resolved_by_key
-                .entry(key)
-                .or_default()
-                .push(resolved.clone());
-        }
-
-        // Group original conflicts by (file_path, local_start)
-        let mut original_by_key: HashMap<(String, usize), Conflict> = HashMap::new();
-        for conflict in &conflicts {
-            let key = (conflict.file_path.clone(), conflict.local_start);
-            original_by_key.entry(key).or_insert(conflict.clone());
-        }
-
-        // Collect unique conflicts and their resolved versions
-        let mut resolved_for_keys: Vec<ResolvedConflict> = Vec::new();
-
-        for (key, _) in original_by_key.iter() {
-            if !retry_files.contains(&key.0) {
-                continue;
-            }
-            if !resolved_by_key.contains_key(key) {
-                continue;
-            }
-            // Check if all required endpoints have a solution for this conflict
-            let resolved_list = &resolved_by_key[key];
-            let mut has_all_endpoints = true;
-            for (endpoint_idx, endpoint) in endpoints.iter().enumerate() {
-                if !endpoint.primary {
-                    continue;
-                }
-                if !resolved_list.iter().any(|r| r.endpoint == endpoint_idx) {
-                    has_all_endpoints = false;
-                    break;
-                }
-            }
-            if has_all_endpoints {
-                resolved_for_keys.extend(resolved_list.clone());
-            }
-        }
-
-        for r in &resolved_for_keys {
-            log::debug!(
-                "keep_solved_conflicts: endpoint: {}, local_start: {}, local_end: {}",
-                r.endpoint,
-                r.conflict.local_start,
-                r.conflict.local_end
-            );
-        }
-        resolved_for_keys
     }
 }
 
