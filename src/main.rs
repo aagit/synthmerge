@@ -97,8 +97,9 @@ async fn main() -> Result<()> {
     // Try to cherry-pick with diff3 mode
     let result = git_utils.check_diff3();
     if result.is_err() {
-        eprintln!("Diff3 check failed. Run 'git config merge.conflictStyle diff3' to fix this.");
-        std::process::exit(1);
+        anyhow::bail!(
+            "Diff3 check failed. Run 'git config merge.conflictStyle diff3' to fix this."
+        );
     }
 
     let mut prev_conflicts = Vec::new();
