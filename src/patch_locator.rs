@@ -191,6 +191,40 @@ impl Hunk {
         Ok(result)
     }
 
+    pub fn validate(&self) -> Result<()> {
+        let mut base_len = 0;
+        let mut remote_len = 0;
+        // Validate that all body lines start with a space, - or +
+        for line in &self.body {
+            match line.as_bytes().first() {
+                Some(b' ') => {
+                    base_len += 1;
+                    remote_len += 1;
+                }
+                Some(b'-') => base_len += 1,
+                Some(b'+') => remote_len += 1,
+                // By design empty newline isn't expected to ever happen
+                //Some(b'\\') if line.trim_end() == r"\ No newline at end of file" => {}
+                _ => {
+                    anyhow::bail!(
+                        "Invalid hunk body line: '{}'. All body lines must start with ' ', '-', or '+'.",
+                        line
+                    );
+                }
+            }
+        }
+
+        if base_len != self.base_len || remote_len != self.remote_len {
+            anyhow::bail!(
+                "Invalid hunk: base_len={}, remote_len={}",
+                base_len,
+                remote_len
+            );
+        }
+
+        Ok(())
+    }
+
     /// Splits the hunk body into multiple strings, each containing at
     /// least `patch_context_lines` context lines before and after the
     /// changed lines (+ or -).
@@ -279,7 +313,7 @@ impl Hunk {
 
                     // Finalize current hunk
                     if !current_body.is_empty() {
-                        hunks.push(Hunk {
+                        let hunk = Hunk {
                             header: self.header.clone(),
                             body: current_body.clone(),
                             base_start: self.base_start + skipped_base,
@@ -287,7 +321,9 @@ impl Hunk {
                             remote_start: self.remote_start + skipped_remote,
                             remote_len: remote_count,
                             clean: self.clean,
-                        });
+                        };
+                        hunk.validate()?;
+                        hunks.push(hunk);
                     }
 
                     let start_idx = pending_context.len() - patch_context_lines;
@@ -349,7 +385,7 @@ impl Hunk {
 
         // Add the final hunk
         if !current_body.is_empty() {
-            hunks.push(Hunk {
+            let hunk = Hunk {
                 header: self.header.clone(),
                 body: current_body,
                 base_start: self.base_start + skipped_base,
@@ -357,7 +393,9 @@ impl Hunk {
                 remote_start: self.remote_start + skipped_remote,
                 remote_len: remote_count,
                 clean: self.clean,
-            });
+            };
+            hunk.validate()?;
+            hunks.push(hunk);
         }
 
         Ok(hunks)
@@ -492,19 +530,7 @@ impl PatchLocator {
                              remote_start: usize,
                              remote_count: usize|
          -> Result<Hunk> {
-            // Validate that all body lines start with a space, - or +
-            for body_line in &body {
-                if !body_line.starts_with(' ')
-                    && !body_line.starts_with('-')
-                    && !body_line.starts_with('+')
-                {
-                    return Err(anyhow::anyhow!(
-                        "Invalid hunk body line: '{}'. All body lines must be prefixed with a space, - or +.",
-                        body_line
-                    ));
-                }
-            }
-            Ok(Hunk {
+            let hunk = Hunk {
                 header,
                 body,
                 base_start,
@@ -512,7 +538,9 @@ impl PatchLocator {
                 remote_start,
                 remote_len: remote_count,
                 clean,
-            })
+            };
+            hunk.validate()?;
+            Ok(hunk)
         };
 
         for line in diff_output.split_inclusive('\n') {
