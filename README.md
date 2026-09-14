@@ -225,18 +225,34 @@ The layout can be configured either at the endpoint level or in individual varia
 
 ---
 
-## 🛠️ llama.cpp GBNF Grammar Support
+## 🛠️ GBNF EBNF Grammar Support
 
-To enable llama.cpp GBNF grammar to OpenAI compatible endpoints, add the `gbnf: true` parameter:
+To enable structured output constraints for OpenAI-compatible endpoints, add the `grammar` parameter.
+
+- **llama.cpp**: GBNF grammar support
+- **vLLM**: EBNF grammar support
 
 ```yaml
+# For llama.cpp (GBNF)
 endpoints:
   - name: "llama.cpp vulkan"
     url: "http://localhost:8811/v1/chat/completions"
     type: "openai"
-    gbnf: true
+    grammar: "gbnf"
+    # ... other configuration parameters
+
+# For vLLM (EBNF)
+endpoints:
+  - name: "vllm endpoint"
+    url: "https://localhost:443/v1/chat/completions"
+    type: "openai"
+    grammar: "ebnf"
     # ... other configuration parameters
 ```
+
+### When to Use Grammar
+
+Some models exhibit high error rates or do not benefit from reasoning before generating code. In these cases, grammar constraints force the model to produce code directly, bypassing intermediate reasoning steps to improve reliability and accuracy.
 
 ## 🎯 Primary Endpoints
 
