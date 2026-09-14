@@ -954,6 +954,14 @@ Model: Gemini 2.5 Flash (none default) # reasoning_effort: none
   Average tokens: 5069.04
   Average duration: 1.15 s
 
+Model: nemotron-super-120b-bf16 (ebnf) # enable_thinking: false
+  Accuracy: 49.42% (558/1129)
+  Accuracy (aligned): 53.94% (609/1129)
+  Accuracy (stripped): 58.28% (658/1129)
+  Error Rate: 2.39% (27/1129)
+  Average input tokens: 4500.75
+  Average output tokens: 168.21
+
 # context: layout: system_message: [ prompt ] user_message: [ training, diff ]
 Model: Gemini 2.5 Flash (low no_diff userctx) # reasoning_effort low
   Accuracy: 48.72% (550/1129)
