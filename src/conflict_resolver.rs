@@ -818,6 +818,13 @@ FINALLY answer with the final PATCHED CODE between {patched_code_start}{patched_
  {{
  	return &default_feat;
  }}
+@@ -10,4 +10,4 @@
+-static const struct feature *lookup_feature(struct object *obj)
++static const struct feature *lookup_feature(struct device *dev)
+ {{
+-	return get_extra_something(obj);
++	return get_special_something(dev);
+ }}
 {patch_end}"#,
             patch_start = Self::PATCH_START,
             patch_end = Self::PATCH_END,
@@ -832,6 +839,15 @@ static inline struct feat *get_extra_something(double option, struct device *obj
  {{	
 	return &feat;
 }}
+
+/* Look up the faature for this device. */
+static struct feat *lookup_feature(double option, struct device *obj, int param)
+{{
+	if (!obj)
+		return NULL;
+
+	return get_extra_something(option, obj, param);
+}}
 {code_end}"#,
             code_start = Self::CODE_START,
             code_end = Self::CODE_END,
@@ -845,6 +861,15 @@ extern struct feat feat;
 static inline struct feat *get_special_something(double option, struct device *dev, int param)
  {{	
 	return &feat;
+}}
+
+/* Look up the faature for this device. */
+static struct feat *lookup_feature(double option, struct device *dev, int param)
+{{
+	if (!dev)
+		return NULL;
+
+	return get_special_something(option, dev, param);
 }}
 {patched_code_end}"#,
             patched_code_start = Self::PATCHED_CODE_START,
@@ -864,6 +889,8 @@ static inline struct feat *get_special_something(double option, struct device *d
 
         format!(
             r#"Learn from the following training example:
+
+Apply the PATCH to the corresponding CODE, adapting to local differences rather than copying the patch's resulting lines verbatim. Preserve local types, parameters, arguments, checks, comments, and whitespace unless the change requires updating them. Here the device type change is already present in CODE; rename the function and parameters, update the call, and update the local null check to use the renamed parameter. Return the entire PATCHED CODE, including unchanged lines.
 
 {}
 
