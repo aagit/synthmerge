@@ -458,6 +458,85 @@ impl Hunk {
         }
         Ok(lines.join(""))
     }
+
+    // Only context can overlap
+    fn merge_overlapping_hunks(mut hunks: Vec<Hunk>) -> Result<Vec<Hunk>> {
+        hunks.sort_by_key(|hunk| (hunk.base_start, hunk.remote_start));
+
+        let mut merged: Vec<Hunk> = Vec::with_capacity(hunks.len());
+        for right in hunks {
+            if right.base_len == 0 || right.remote_len == 0 {
+                merged.push(right);
+                continue;
+            }
+            if let Some(left) = merged.last_mut()
+                && left.clean == right.clean
+                && left.base_len != 0
+                && left.remote_len != 0
+            {
+                let left_base_end = left.base_start + left.base_len;
+                let left_remote_end = left.remote_start + left.remote_len;
+
+                let right_base_end = right.base_start + right.base_len;
+                let right_remote_end = right.remote_start + right.remote_len;
+
+                let base_overlaps =
+                    left.base_start < right_base_end && right.base_start < left_base_end;
+                let remote_overlaps =
+                    left.remote_start < right_remote_end && right.remote_start < left_remote_end;
+
+                if base_overlaps || remote_overlaps {
+                    let overlap_len = left_base_end.saturating_sub(right.base_start);
+                    let left_tail_len = left.get_tail_context().len();
+                    let right_head_len = right.get_head_context().len();
+                    if overlap_len == 0
+                        || left_remote_end.checked_sub(right.remote_start) != Some(overlap_len)
+                        || overlap_len > left_tail_len
+                        || overlap_len > right_head_len
+                    {
+                        return Err(anyhow::anyhow!(
+                            "Hunk ranges overlap outside tail and head context: left base=[{},{}), remote=[{},{}), tail={}; right base=[{},{}), remote=[{},{}), head={}",
+                            left.base_start,
+                            left_base_end,
+                            left.remote_start,
+                            left_remote_end,
+                            left_tail_len,
+                            right.base_start,
+                            right_base_end,
+                            right.remote_start,
+                            right_remote_end,
+                            right_head_len,
+                        ));
+                    }
+                    if left.body[left.body.len() - overlap_len..] != right.body[..overlap_len] {
+                        return Err(anyhow::anyhow!(
+                            "Hunk ranges overlap but their overlapping payloads differ: left base=[{},{}), remote=[{},{}), tail={}; right base=[{},{}), remote=[{},{}), head={}",
+                            left.base_start,
+                            left_base_end,
+                            left.remote_start,
+                            left_remote_end,
+                            left_tail_len,
+                            right.base_start,
+                            right_base_end,
+                            right.remote_start,
+                            right_remote_end,
+                            right_head_len,
+                        ));
+                    }
+
+                    left.body.extend(right.body.into_iter().skip(overlap_len));
+                    left.base_len += right.base_len - overlap_len;
+                    left.remote_len += right.remote_len - overlap_len;
+                    left.validate()?;
+                    continue;
+                }
+            }
+
+            merged.push(right);
+        }
+
+        Ok(merged)
+    }
 }
 
 pub struct PatchLocator {
@@ -1842,6 +1921,12 @@ impl PatchLocator {
 
         self.merge_conflicts(conflicts)?;
 
+        // Merge the hunks associated with each conflict
+        for conflict in conflicts.iter_mut() {
+            let hunks = std::mem::take(&mut conflict.hunks);
+            conflict.hunks = Hunk::merge_overlapping_hunks(hunks)?;
+        }
+
         let mut prev_new_local_end = 0;
         for i in 0..conflicts.len() {
             let next_new_local_start = if i + 1 < conflicts.len() {
@@ -2182,6 +2267,193 @@ mod tests {
             verify_bytes_to_lines_and_lines_to_bytes(lines);
         }
         //panic!();
+    }
+
+    fn test_locator() -> PatchLocator {
+        PatchLocator::new(
+            Arc::new(String::new()),
+            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
+            None,
+            ContextLines {
+                code_context_lines: 3,
+                diff_context_lines: 3,
+                patch_context_lines: 3,
+                extra_conflict_lines: 0,
+            },
+            200000,
+            false,
+        )
+    }
+
+    fn parse_hunks(diff: &str, clean: bool) -> Vec<Hunk> {
+        let locator = test_locator();
+        locator.diff_to_hunks(diff, clean).unwrap()
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_preserves_header() {
+        let hunks = parse_hunks(
+            "@@ -1,3 +1,3 @@ function @@ suffix\n a\n-b\n+B\n c\n@@ -3,3 +3,3 @@\n c\n-d\n+D\n e\n",
+            false,
+        );
+        let merged = Hunk::merge_overlapping_hunks(hunks).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].to_string(),
+            "@@ -1,5 +1,5 @@ function @@ suffix\n a\n-b\n+B\n c\n-d\n+D\n e\n"
+        );
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_keeps_adjacent() {
+        let hunks = parse_hunks("@@ -1 +1 @@\n-a\n+A\n@@ -2 +2 @@\n-b\n+B\n", false);
+        assert_eq!(Hunk::merge_overlapping_hunks(hunks.clone()).unwrap(), hunks);
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_rejects_incompatible() {
+        let hunks = parse_hunks("@@ -1 +1 @@\n-a\n+A\n@@ -1 +1 @@\n-a\n+X\n", false);
+        assert!(Hunk::merge_overlapping_hunks(hunks).is_err());
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_partial_context_overlap() {
+        let hunks = parse_hunks(
+            "@@ -1,4 +1,4 @@\n a\n-b\n+B\n c\n d\n@@ -4,4 +4,4 @@\n d\n e\n-f\n+F\n g\n",
+            false,
+        );
+        let merged = Hunk::merge_overlapping_hunks(hunks).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].to_string(),
+            "@@ -1,7 +1,7 @@\n a\n-b\n+B\n c\n d\n e\n-f\n+F\n g\n"
+        );
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_multiple_context_lines() {
+        let hunks = parse_hunks(
+            "@@ -1,4 +1,4 @@\n a\n-b\n+B\n c\n d\n@@ -3,4 +3,4 @@\n c\n d\n-e\n+E\n f\n",
+            false,
+        );
+        let merged = Hunk::merge_overlapping_hunks(hunks).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].to_string(),
+            "@@ -1,6 +1,6 @@\n a\n-b\n+B\n c\n d\n-e\n+E\n f\n"
+        );
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_different_base_and_remote_lengths() {
+        let hunks = parse_hunks(
+            "@@ -1,3 +1,4 @@\n a\n-b\n+B\n+BB\n c\n@@ -3,3 +4,2 @@\n c\n-d\n e\n",
+            false,
+        );
+        let merged = Hunk::merge_overlapping_hunks(hunks).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].to_string(),
+            "@@ -1,5 +1,5 @@\n a\n-b\n+B\n+BB\n c\n-d\n e\n"
+        );
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_rejects_incompatible_context() {
+        for diff in [
+            "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -3,3 +3,3 @@\n x\n-d\n+D\n e\n",
+            "@@ -1,4 +1,4 @@\n a\n-b\n+B\n c\n d\n@@ -3,4 +4,4 @@\n c\n d\n-e\n+E\n f\n",
+        ] {
+            let hunks = parse_hunks(diff, false);
+            assert!(Hunk::merge_overlapping_hunks(hunks).is_err());
+        }
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_rejects_overlap_outside_context() {
+        for diff in [
+            "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -2,3 +2,3 @@\n b\n c\n-d\n+D\n",
+            "@@ -1,3 +1,3 @@\n-a\n+A\n b\n c\n@@ -2,3 +2,3 @@\n b\n-c\n+C\n d\n",
+        ] {
+            let hunks = parse_hunks(diff, false);
+            assert!(Hunk::merge_overlapping_hunks(hunks).is_err());
+        }
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_keeps_different_clean_flags() {
+        let mut hunks = parse_hunks(
+            "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -3,3 +3,3 @@\n c\n-d\n+D\n e\n",
+            false,
+        );
+        hunks[1].clean = true;
+        assert_eq!(Hunk::merge_overlapping_hunks(hunks.clone()).unwrap(), hunks);
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_chain_in_reverse_order() {
+        let mut hunks = parse_hunks(
+            "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -3,3 +3,3 @@\n c\n-d\n+D\n e\n@@ -5,3 +5,3 @@\n e\n-f\n+F\n g\n",
+            false,
+        );
+        hunks.reverse();
+        let merged = Hunk::merge_overlapping_hunks(hunks).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].to_string(),
+            "@@ -1,7 +1,7 @@\n a\n-b\n+B\n c\n-d\n+D\n e\n-f\n+F\n g\n"
+        );
+    }
+
+    #[test]
+    fn test_merge_overlapping_hunks_rejects_incompatible_intermediate_hunk() {
+        let hunks = parse_hunks(
+            "@@ -1,3 +1,3 @@\n a\n b\n c\n@@ -2 +2 @@\n-b\n+X\n@@ -3,2 +3,2 @@\n c\n d\n",
+            false,
+        );
+        assert!(Hunk::merge_overlapping_hunks(hunks).is_err());
+    }
+
+    #[test]
+    fn test_shared_hunks_survive_until_conflict_merging() {
+        let locator = test_locator();
+        let hunks = parse_hunks(
+            "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -3,3 +3,3 @@\n c\n-d\n+D\n e\n",
+            false,
+        );
+        let mut conflicts = vec![
+            Conflict {
+                local_start: 1,
+                local_end: 2,
+                new_local_start: 1,
+                new_local_end: 2,
+                conflict_raw_patch: Some(String::new()),
+                hunks: hunks.clone(),
+                ..Default::default()
+            },
+            Conflict {
+                local_start: 20,
+                local_end: 21,
+                new_local_start: 20,
+                new_local_end: 21,
+                conflict_raw_patch: Some(String::new()),
+                hunks: vec![hunks[1].clone()],
+                ..Default::default()
+            },
+        ];
+        locator.merge_conflicts(&mut conflicts).unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].hunks.len(), 2);
+        let hunks = std::mem::take(&mut conflicts[0].hunks);
+        conflicts[0].hunks = Hunk::merge_overlapping_hunks(hunks).unwrap();
+        locator.generate_conflict_patch(&mut conflicts[0]).unwrap();
+        assert_eq!(
+            conflicts[0].conflict_patch,
+            "@@ -1,5 +1,5 @@\n a\n-b\n+B\n c\n-d\n+D\n e\n"
+        );
     }
 }
 
