@@ -83,6 +83,13 @@ macro_rules! check_conflicting_context_fields {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointGrammar {
+    Gbnf,
+    Ebnf,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum EndpointTypeConfig {
     #[serde(rename = "openai")]
@@ -91,7 +98,7 @@ pub enum EndpointTypeConfig {
         #[serde(default)]
         no_chat: bool, // false: /v1/chat/completions true /v1/completions
         #[serde(default)]
-        gbnf: bool,
+        grammar: Option<EndpointGrammar>,
     },
     #[serde(rename = "anthropic")]
     Anthropic {
@@ -486,7 +493,7 @@ mod tests {
     fn test_config_loading() {
         let config_yaml = include_str!(concat!("../", env!("CARGO_PKG_NAME"), ".yaml"));
         let config: Config = serde_yaml::from_str(config_yaml).unwrap();
-        assert_eq!(config.endpoints.len(), 13);
+        assert_eq!(config.endpoints.len(), 14);
         assert_eq!(config.endpoints[0].name, "Gemini 3.8 Flash");
         assert_eq!(
             config.endpoints[0].fallbacks[0].name,
@@ -507,10 +514,11 @@ mod tests {
         assert_eq!(config.endpoints[6].name, "Claude Sonnet 5");
         assert_eq!(config.endpoints[7].name, "Vertex Claude Sonnet 5");
         assert_eq!(config.endpoints[8].name, "Vertex Gateway Claude Sonnet 4.0");
-        assert_eq!(config.endpoints[9].name, "Patchpal AI");
+        assert_eq!(config.endpoints[9].name, "vllm");
         assert_eq!(config.endpoints[10].name, "llama.cpp vulkan minimal");
         assert_eq!(config.endpoints[11].name, "llama.cpp vulkan");
         assert_eq!(config.endpoints[12].name, "llama.cpp vulkan no_chat");
+        assert_eq!(config.endpoints[13].name, "Patchpal AI");
     }
 }
 
