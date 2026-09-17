@@ -114,6 +114,7 @@ pub struct GitUtils {
     continue_op: bool,
     allow_empty: bool,
     assisted: bool,
+    cherry_pick_x_warned: bool,
     assisted_conflicts: Vec<ResolvedConflict>,
     resolved_files: HashSet<String>,
     unresolved_files: HashSet<String>,
@@ -159,6 +160,7 @@ impl GitUtils {
             continue_op,
             allow_empty,
             assisted: false,
+            cherry_pick_x_warned: false,
             assisted_conflicts: Vec::new(),
             resolved_files: HashSet::new(),
             unresolved_files: HashSet::new(),
@@ -1650,7 +1652,7 @@ impl GitUtils {
     }
 
     /// Check if cherry-pick was run without -x
-    fn check_cherry_pick_x(&self, merge_msg_content: &str) -> Result<()> {
+    fn check_cherry_pick_x(&mut self, merge_msg_content: &str) -> Result<()> {
         let operation = self.find_operation_head(self.git_dir.as_ref().unwrap())?;
         if let Some(op) = operation {
             if op.command != "cherry-pick" {
@@ -1660,8 +1662,11 @@ impl GitUtils {
             return Ok(());
         }
 
-        if !merge_msg_content.contains("\n(cherry picked from commit ") {
+        if !self.cherry_pick_x_warned
+            && !merge_msg_content.contains("\n(cherry picked from commit ")
+        {
             log::warn!("git cherry-pick was run without the -x flag");
+            self.cherry_pick_x_warned = true;
         }
 
         Ok(())
