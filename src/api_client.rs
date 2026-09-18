@@ -109,6 +109,26 @@ impl ApiClient {
             .map_err(|e| anyhow::anyhow!("Failed to build client: {}", e))
     }
 
+    fn clear_signature_fields(json: &mut serde_json::Value) {
+        match json {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map.iter_mut() {
+                    if key.to_lowercase().contains("signature") {
+                        *value = serde_json::Value::Null;
+                    } else {
+                        Self::clear_signature_fields(value);
+                    }
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr.iter_mut() {
+                    Self::clear_signature_fields(item);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Query the AI endpoint with the given prompt
     pub async fn query(&self, api_request: &ApiRequest) -> Result<(ApiResponse, Option<usize>)> {
         let result = self.query_endpoint(api_request).await;
@@ -281,7 +301,7 @@ impl ApiClient {
             perplexity: &mut Vec<String>,
             duration: f64| -> Result<ApiResponseEntry> {
                 // Parse JSON response to extract the content
-                let json_response: serde_json::Value = serde_json::from_str(response_text)
+                let mut json_response: serde_json::Value = serde_json::from_str(response_text)
                     .map_err(|e| {
                         if response_text.contains("Usage limit exceeded") {
                             anyhow::anyhow!(ApiRequestError::UsageLimitExceeded)
@@ -290,6 +310,7 @@ impl ApiClient {
                             anyhow::anyhow!("Failed to parse JSON response: {}", e)
                         }
                     })?;
+                Self::clear_signature_fields(&mut json_response);
 
                 // Check for context size error in OpenAI responses
                 if let Some(error) = json_response.get("error")
@@ -482,7 +503,7 @@ impl ApiClient {
             &payload,
             |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponseEntry> {
                 // Parse JSON response to extract the content
-                let json_response: serde_json::Value = serde_json::from_str(response_text)
+                let mut json_response: serde_json::Value = serde_json::from_str(response_text)
                     .map_err(|e| {
                         if response_text.contains("Usage limit exceeded") {
                             anyhow::anyhow!(ApiRequestError::UsageLimitExceeded)
@@ -491,6 +512,7 @@ impl ApiClient {
                             anyhow::anyhow!("Failed to parse JSON response: {}", e)
                         }
                     })?;
+                Self::clear_signature_fields(&mut json_response);
 
                 // Check for context size error in Anthropic responses
                 if let Some(error) = json_response.get("error")
