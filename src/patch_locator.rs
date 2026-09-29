@@ -32,7 +32,7 @@ fn _lines_to_bytes(bytes: &[u8], line: usize) -> usize {
 }
 
 /// Represents a single hunk from a git diff
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Hunk {
     /// The text after the second @@
     pub header: String,
@@ -48,6 +48,15 @@ pub struct Hunk {
     /// Length of the remote section (lines with ' ' or '+')
     pub remote_len: usize,
     pub clean: bool,
+}
+
+impl std::fmt::Debug for Hunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hunk")
+            .field("clean", &self.clean)
+            .field("body", &format_args!("\n{}", self))
+            .finish()
+    }
 }
 
 impl std::fmt::Display for Hunk {
