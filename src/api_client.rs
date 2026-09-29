@@ -109,26 +109,6 @@ impl ApiClient {
             .map_err(|e| anyhow::anyhow!("Failed to build client: {}", e))
     }
 
-    fn clear_signature_fields(json: &mut serde_json::Value) {
-        match json {
-            serde_json::Value::Object(map) => {
-                for (key, value) in map.iter_mut() {
-                    if key.to_lowercase().contains("signature") {
-                        *value = serde_json::Value::Null;
-                    } else {
-                        Self::clear_signature_fields(value);
-                    }
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                for item in arr.iter_mut() {
-                    Self::clear_signature_fields(item);
-                }
-            }
-            _ => {}
-        }
-    }
-
     /// Query the AI endpoint with the given prompt
     pub async fn query(&self, api_request: &ApiRequest) -> Result<(ApiResponse, Option<usize>)> {
         let result = self.query_endpoint(api_request).await;
@@ -215,6 +195,35 @@ impl ApiClient {
             }
         }
         Ok(headers)
+    }
+
+    fn clear_signature_fields(json: &mut serde_json::Value) {
+        match json {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map.iter_mut() {
+                    if key.to_lowercase().contains("signature") {
+                        *value = serde_json::Value::Null;
+                    } else {
+                        Self::clear_signature_fields(value);
+                    }
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr.iter_mut() {
+                    Self::clear_signature_fields(item);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn log_response_json(&self, response_text: &str, json_response: &mut serde_json::Value) {
+        Self::clear_signature_fields(json_response);
+        log::trace!(
+            "Response JSON ({}):\n{}",
+            self.endpoint.name,
+            serde_json::to_string_pretty(json_response).unwrap_or(response_text.to_string())
+        );
     }
 
     async fn query_openai_variant(
@@ -310,7 +319,7 @@ impl ApiClient {
                             anyhow::anyhow!("Failed to parse JSON response: {}", e)
                         }
                     })?;
-                Self::clear_signature_fields(&mut json_response);
+                self.log_response_json(response_text, &mut json_response);
 
                 // Check for context size error in OpenAI responses
                 if let Some(error) = json_response.get("error")
@@ -512,7 +521,7 @@ impl ApiClient {
                             anyhow::anyhow!("Failed to parse JSON response: {}", e)
                         }
                     })?;
-                Self::clear_signature_fields(&mut json_response);
+                self.log_response_json(response_text, &mut json_response);
 
                 // Check for context size error in Anthropic responses
                 if let Some(error) = json_response.get("error")
@@ -713,7 +722,7 @@ impl ApiClient {
         let response_handler =
             |response_text: &str, _: &mut Vec<String>, duration: f64| -> Result<ApiResponse> {
                 // Try to parse as JSON and extract content
-                let json_response: serde_json::Value = serde_json::from_str(response_text)
+                let mut json_response: serde_json::Value = serde_json::from_str(response_text)
                     .map_err(|e| {
                         if response_text.contains("Usage limit exceeded") {
                             anyhow::anyhow!(ApiRequestError::UsageLimitExceeded)
@@ -722,6 +731,7 @@ impl ApiClient {
                             anyhow::anyhow!("Failed to parse JSON response: {}", e)
                         }
                     })?;
+                self.log_response_json(response_text, &mut json_response);
 
                 if json_response.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0") {
                     log::warn!(
@@ -818,6 +828,12 @@ impl ApiClient {
         let mut delay = Duration::from_millis(self.endpoint.delay);
         let max_delay = Duration::from_millis(self.endpoint.max_delay);
 
+        log::trace!(
+            "Request JSON ({}):\n{}",
+            self.endpoint.name,
+            serde_json::to_string_pretty(payload).unwrap()
+        );
+
         let cache_key = match &self.lmdb_cache {
             Some(cache) => {
                 let key = cache.get_cache_key(&[url, &serde_json::to_string(payload).unwrap()]);
@@ -847,12 +863,6 @@ impl ApiClient {
             }
             None => None,
         };
-
-        log::trace!(
-            "Request JSON ({}):\n{}",
-            self.endpoint.name,
-            serde_json::to_string_pretty(payload).unwrap()
-        );
 
         for _ in 0..self.endpoint.retries {
             let headers = match self.create_headers().await {
@@ -887,16 +897,6 @@ impl ApiClient {
                         }
                     };
                     let duration = start.elapsed().as_secs_f64();
-                    log::trace!(
-                        "Response JSON ({}):\n{}",
-                        self.endpoint.name,
-                        serde_json::to_string_pretty(
-                            &serde_json::from_str(&response_text)
-                                .unwrap_or(serde_json::Value::String(response_text.clone()))
-                        )
-                        .unwrap_or(response_text.clone())
-                    );
-
                     match response_handler(&response_text, perplexity, duration) {
                         Ok(api_response) => {
                             if let (Some(cache), Some(key)) = (&self.lmdb_cache, &cache_key) {
