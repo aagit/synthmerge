@@ -919,36 +919,45 @@ impl PatchLocator {
         Ok(())
     }
 
-    fn convert_clean_hunk_offsets(&self, hunk: &mut Hunk, conflicts: &[Conflict]) {
-        let ml_line = if hunk.remote_len == 0 {
-            assert_eq!(hunk.get_head_context().len(), 0);
-            hunk.remote_start
-        } else {
-            hunk.remote_start - 1 + hunk.get_head_context().len()
-        };
-        let mut local_line = 0;
-        let mut base_line = ml_line;
-        let mut remote_line = ml_line;
+    fn convert_clean_hunk_offsets(&self, hunks: &mut [Hunk], conflicts: &[Conflict]) {
+        let mut clean_base_line = 0;
+        let mut clean_remote_line = 0;
 
-        for conflict in conflicts {
-            if conflict.commit_type != CommitType::Conflict {
-                continue;
-            }
-            if ml_line >= conflict.local_end {
-                let local_len = conflict.local_end - conflict.local_start;
-                let base_len = conflict.base_end - conflict.base_start;
-                let remote_len = conflict.remote_end - conflict.remote_start;
-
-                local_line += local_len;
-                base_line += base_len;
-                remote_line += remote_len;
+        for hunk in hunks {
+            let head_context_len = hunk.get_head_context().len();
+            let ml_line = if hunk.remote_len == 0 {
+                assert_eq!(head_context_len, 0);
+                hunk.remote_start
             } else {
-                break;
-            }
-        }
+                hunk.remote_start - 1 + head_context_len
+            };
+            let mut local_line = clean_remote_line;
+            let mut base_line = ml_line + clean_base_line;
+            let mut remote_line = ml_line + clean_remote_line;
 
-        hunk.base_start = base_line - local_line + 1;
-        hunk.remote_start = remote_line - local_line + 1;
+            for conflict in conflicts {
+                if conflict.commit_type != CommitType::Conflict {
+                    continue;
+                }
+                if ml_line >= conflict.local_end {
+                    let local_len = conflict.local_end - conflict.local_start;
+                    let base_len = conflict.base_end - conflict.base_start;
+                    let remote_len = conflict.remote_end - conflict.remote_start;
+
+                    local_line += local_len;
+                    base_line += base_len;
+                    remote_line += remote_len;
+                } else {
+                    break;
+                }
+            }
+
+            hunk.base_start = base_line - local_line + 1 - head_context_len;
+            hunk.remote_start = remote_line - local_line + 1 - head_context_len;
+
+            clean_base_line += hunk.base_len;
+            clean_remote_line += hunk.remote_len;
+        }
     }
 
     fn process_clean_hunks(&self, conflicts: &mut Vec<Conflict>, hunks: Vec<Hunk>) -> Result<()> {
@@ -965,8 +974,8 @@ impl PatchLocator {
             splitted_hunks.extend(h.split(1, patch_context_lines)?);
         }
 
-        for mut hunk in splitted_hunks {
-            self.convert_clean_hunk_offsets(&mut hunk, conflicts);
+        self.convert_clean_hunk_offsets(&mut splitted_hunks, conflicts);
+        for hunk in splitted_hunks {
             self.process_clean_hunk_single(conflicts, &hunk, &minus_lines, &minus_lines_hasher)?;
         }
 
