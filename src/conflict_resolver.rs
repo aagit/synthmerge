@@ -523,7 +523,7 @@ impl<'a> ConflictResolver<'a> {
                             continue;
                         }
                         let leading_tail_context = if !conflict.head_context.is_empty() {
-                            &format!("\n{}", &conflict.tail_context)
+                            &format!("\n{}", conflict.tail_context)
                         } else {
                             &conflict.tail_context
                         };

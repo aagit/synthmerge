@@ -12,18 +12,10 @@ pub fn logprob(json: &Value, perplexity: &mut Vec<String>) -> Option<f64> {
     let logprobs = json
         .get("choices")
         .and_then(|c| c.as_array().and_then(|arr| arr.first()))
-        .and_then(|c| c.get("logprobs"));
-
-    // If no logprobs, return None
-    let logprobs = logprobs?;
+        .and_then(|c| c.get("logprobs"))?;
 
     // Extract content logprobs
-    let content_logprobs = match logprobs.get("content") {
-        Some(content) => content.as_array(),
-        None => return None,
-    };
-
-    let content_logprobs = content_logprobs?;
+    let content_logprobs = logprobs.get("content")?.as_array()?;
 
     // If no content logprobs, return None
     if content_logprobs.is_empty() {
