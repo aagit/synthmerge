@@ -72,7 +72,7 @@ struct ModelStats {
 pub struct Bench {
     results: Vec<TestResult>,
     model_stats: HashMap<String, ModelStats>,
-    git_diffs: HashMap<String, String>,
+    git_diffs: HashMap<String, Option<String>>,
     line_number_re: regex::Regex,
 }
 
@@ -582,32 +582,21 @@ impl Bench {
             println!("{}", processing_msg);
 
             // Create conflict from test entry
-            let git_diff = self.git_diffs.get(&entry.patch_commit_hash).cloned();
-            let git_diff = git_diff.or_else(|| {
-                // cache only the current commit
-                self.git_diffs.clear();
-
-                // Find the commit hash from the patch_commit_hash
-                let commit_hash = &entry.patch_commit_hash;
-                // Extract the diff from git
-                // Try each directory
-                if let Some(diff) =
-                    self.git_show_dirs(&git_utils, &args.git_directories, commit_hash, None)
-                {
-                    if diff.len() <= args.max_context_size.try_into().unwrap() {
-                        // Store the diff for future use
-                        self.git_diffs.insert(commit_hash.clone(), diff.clone());
-                        return Some(diff);
-                    } else {
-                        log::warn!(
-                            "Git diff exceeds max size ({} bytes), skipping",
-                            args.max_context_size
-                        );
-                        return None;
-                    }
+            let git_diff = match self.git_diffs.get(&entry.patch_commit_hash).cloned() {
+                Some(git_diff) => git_diff,
+                None => {
+                    self.git_diffs.clear();
+                    let diff = self.git_show_dirs(
+                        &git_utils,
+                        &args.git_directories,
+                        &entry.patch_commit_hash,
+                        args.max_context_size,
+                    )?;
+                    self.git_diffs
+                        .insert(entry.patch_commit_hash.clone(), diff.clone());
+                    diff
                 }
-                panic!("Git diff for commit {} not found", commit_hash);
-            });
+            };
 
             let conflict = self.create_conflict_from_entry(
                 entry,
@@ -774,14 +763,16 @@ impl Bench {
         git_utils: &GitUtils,
         dirs: &[String],
         commit_hash: &str,
-        filename: Option<&str>,
-    ) -> Option<String> {
+        max_context_size: u32,
+    ) -> Result<Option<String>> {
+        let mut last_error = None;
         for dir in dirs {
-            if let Ok(Some(diff)) = git_utils.git_show_in_dir(commit_hash, Some(dir), filename) {
-                return Some(diff);
+            match git_utils.extract_diff(commit_hash, max_context_size, Some(dir)) {
+                Ok(diff) => return Ok(diff),
+                Err(error) => last_error = Some(error),
             }
         }
-        None
+        Err(last_error.expect("git_diff not found"))
     }
 
     fn get_all_model_names(&mut self, config: &Config) -> std::collections::HashSet<String> {
