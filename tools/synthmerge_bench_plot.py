@@ -11,6 +11,7 @@ import os
 # 1. Data Definition
 # Format: List of model names
 models = [
+    "Gemini 3.8 Flash (medium default) {0.3.16}",
     "Gemini 3.8 Flash (medium default)",
     "Gemini 3.7 Flash (medium default)",
     "Gemini 3.6 Flash (medium default)",
@@ -20,8 +21,11 @@ models = [
     # "Gemini 2.5 Flash (none no_diff)",
     "Gemini 2.5 Flash (low userctx)",
     # "Gemini 2.5 Flash (low default)",
+    "gpt-6-astra (xhigh) {0.3.16}",
+    "gpt-6-sol (xhigh) {0.3.16}",
+    "gpt-5.6-sol (xhigh) {0.3.16}",
+    "gpt-5.6-sol (xhigh)",
     "gpt-5.6-sol (high)",
-    "gpt-5.6-sol (medium)",
     "gpt-5.6-terra (medium)",
     "gpt-5.6-luna (medium)",
     "gpt-5.5 (high)",

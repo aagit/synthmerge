@@ -416,6 +416,15 @@ This measurement used only new test data never exposed to the model during the f
 ### The Numbers
 
 ```
+Model: Gemini 3.8 Flash (medium default) {0.3.16}
+  Accuracy: 72.19% (815/1129)
+  Accuracy (aligned): 76.26% (861/1129)
+  Accuracy (stripped): 79.81% (901/1129)
+  Error Rate: 0.00% (0/1129)
+  Average input tokens: 5412.12
+  Average output tokens: 2872.10
+  Average duration: 8.93 s
+
 Model: Gemini 3.8 Flash (medium default)
   Accuracy: 71.74% (810/1129)
   Accuracy (aligned): 75.64% (854/1129)
@@ -476,6 +485,15 @@ Model: Claude Opus 5 (default adaptive) # thinking adaptive
   Average tokens: 7384.59
   Average duration: 5.91 s
 
+Model: gpt-5.6-sol (xhigh) {0.3.16}
+  Accuracy: 70.06% (791/1129)
+  Accuracy (aligned): 73.78% (833/1129)
+  Accuracy (stripped): 77.59% (876/1129)
+  Error Rate: 0.00% (0/1129)
+  Average input tokens: 4224.94
+  Average output tokens: 349.05
+  Average duration: 5.57 s
+
 Model: gpt-5.6-sol (high)
   Accuracy: 69.71% (787/1129)
   Accuracy (aligned): 73.43% (829/1129)
@@ -500,6 +518,15 @@ Model: gpt-5.5 (medium)
   Average tokens: 4469.82
   Average duration: 5.64 s
 
+Model: gpt-6-sol (xhigh) {0.3.16}
+  Accuracy: 69.35% (783/1129)
+  Accuracy (aligned): 73.34% (828/1129)
+  Accuracy (stripped): 76.79% (867/1129)
+  Error Rate: 0.00% (0/1129)
+  Average input tokens: 4224.94
+  Average output tokens: 414.86
+  Average duration: 6.67 s
+
 Model: Gemini 3.1 Pro (high default) # reasoning_effort: high
   Accuracy: 69.35% (783/1129)
   Accuracy (aligned): 73.25% (827/1129)
@@ -515,6 +542,14 @@ Model: Claude Opus 4.6 (default adaptive) # thinking adaptive
   Error Rate: 0.00% (0/1129)
   Average tokens: 6051.32
   Average duration: 7.70 s
+
+Model: gpt-5.6-sol (xhigh)
+  Accuracy: 69.18% (781/1129)
+  Accuracy (aligned): 72.63% (820/1129)
+  Accuracy (stripped): 76.79% (867/1129)
+  Error Rate: 0.00% (0/1129)
+  Average input tokens: 4043.40
+  Average output tokens: 367.13
 
 Model: Claude Opus 4.6 (default)
   Accuracy: 69.09% (780/1129)
@@ -555,6 +590,15 @@ Model: gpt-5.6-sol (low)
   Error Rate: 0.00% (0/1129)
   Average tokens: 4225.46
   Average duration: 2.69 s
+
+Model: gpt-6-astra (xhigh) {0.3.16}
+  Accuracy: 67.94% (767/1129)
+  Accuracy (aligned): 71.66% (809/1129)
+  Accuracy (stripped): 75.20% (849/1129)
+  Error Rate: 0.00% (0/1129)
+  Average input tokens: 4224.94
+  Average output tokens: 405.50
+  Average duration: 10.31 s
 
 Model: Gemini 3.5 Flash (high default) # reasoning_effort: high
   Accuracy: 67.76% (765/1129)
