@@ -11,30 +11,34 @@ import os
 # 1. Data Definition
 # Format: List of model names
 models = [
-    "Gemini 3.8 Flash (medium default)",
-    "Gemini 3.7 Flash (medium default)",
-    "Gemini 3.6 Flash (medium default)",
-    "Gemini 3.5 Flash (medium default)",
+    "Gemini 3.8 Flash (medium) {0.3.16}",
+    "Gemini 3.7 Flash (medium)",
+    "Gemini 3.6 Flash (medium)",
+    "Gemini 3.5 Flash (medium)",
     "Gemini 3 Flash (none default)",
     "Gemini 2.5 Flash (none default)",
     # "Gemini 2.5 Flash (none no_diff)",
     "Gemini 2.5 Flash (low userctx)",
     # "Gemini 2.5 Flash (low default)",
+    "gpt-6.1-sol (xhigh) {0.3.16}",
+    "gpt-6.1-sol (high) {0.3.16}",
+    "gpt-6-astra (xhigh) {0.3.16}",
+    "gpt-5.6-sol (xhigh) {0.3.16}",
     "gpt-5.6-sol (high)",
-    "gpt-5.6-sol (medium)",
     "gpt-5.6-terra (medium)",
     "gpt-5.6-luna (medium)",
     "gpt-5.5 (high)",
     "gpt-5.5 (medium)",
-    "Claude Opus 5 (default adaptive)",
-    "Claude Opus 4.8 (default adaptive)",
-    "Claude Opus 4.7 (default adaptive)",
-    "Claude Opus 4.6 (default adaptive)",
+    "Claude Opus 5.5 (adaptive) {0.3.16}",
+    "Claude Opus 5 (adaptive) {0.3.16}",
+    "Claude Opus 4.8 (adaptive)",
+    "Claude Opus 4.7 (adaptive)",
+    "Claude Opus 4.6 (adaptive)",
     "Gemini 3.1 Pro (high default)",
     "Gemini 2.5 Pro (low userctx)",
     # "Gemini 2.5 Pro (high)",
     "Patchpal AI 7B #0",
-    "Claude Sonnet 5 (default adaptive)",
+    "Claude Sonnet 5 (adaptive)",
     "Claude Sonnet 4.6 (default)",
     "Claude Sonnet 4.5 (default)",
     "Claude Sonnet 4.0 (default)",
@@ -45,6 +49,7 @@ models = [
     "Qwen3.5-9B-UD-Q8_K_XL (gbnf)",
     # "Qwen3-Coder-30B-A3B-Instruct-Q6_K (default)",
     # "Qwen3-Coder-Next-UD-Q6_K_XL (default)",
+    "GML 5.3 (high) {0.3.16}",
     "Devstral-Small-2-24B-Instruct-2512-UD-Q6_K_XL (default)",
 ]
 
@@ -168,7 +173,7 @@ ax.set_title(
     pad=20,
 )
 ax.set_xticks(x)
-ax.set_xticklabels(models, rotation=90, fontsize=9, ha="right")
+ax.set_xticklabels(models, rotation=90, fontsize=9, ha="center")
 ax.legend(loc="best", fontsize=11)
 ax.set_ylim(0, 100)
 
