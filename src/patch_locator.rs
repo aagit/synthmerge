@@ -1278,11 +1278,9 @@ impl PatchLocator {
                 let head_margin = (temp_conflict.local_start - prev_local_end).saturating_sub(1);
                 let tail_margin = (next_local_start - temp_conflict.local_end).saturating_sub(1);
 
-                let raw_prev_local_end = prev_local_end;
                 let adjusted_prev_local_end = prev_local_end
                     .saturating_sub(head)
                     .max(temp_conflict.local_start.saturating_sub(Self::MAX_SCAN));
-                let raw_next_local_start = next_local_start;
                 let adjusted_next_local_start = next_local_start
                     .saturating_add(tail)
                     .min(temp_conflict.local_end.saturating_add(Self::MAX_SCAN))
@@ -1388,7 +1386,7 @@ impl PatchLocator {
                         let start = temp_conflict
                             .local_end
                             .saturating_sub(Self::MAX_BASE_SCAN)
-                            .max(raw_prev_local_end);
+                            .max(prev_local_end);
                         let end = temp_conflict.local_end;
                         if !self.relocate_base(&mut temp_conflict, start..end, true)? {
                             self.relocate_remote(&mut temp_conflict, start..end, true)?;
@@ -1400,7 +1398,7 @@ impl PatchLocator {
                             .local_start
                             .saturating_add(Self::MAX_BASE_SCAN)
                             .min(self.merged_local_lines.len())
-                            .min(raw_next_local_start);
+                            .min(next_local_start);
                         if !self.relocate_base(&mut temp_conflict, start..end, false)? {
                             self.relocate_remote(&mut temp_conflict, start..end, false)?;
                         }
