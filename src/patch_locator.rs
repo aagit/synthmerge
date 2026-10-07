@@ -960,7 +960,12 @@ impl PatchLocator {
         }
     }
 
-    fn process_clean_hunks(&self, conflicts: &mut Vec<Conflict>, hunks: Vec<Hunk>) -> Result<()> {
+    fn process_clean_hunks(
+        &self,
+        conflicts: &mut Vec<Conflict>,
+        pre_relocation_conflicts: &[Conflict],
+        hunks: Vec<Hunk>,
+    ) -> Result<()> {
         conflicts.sort_by_key(|c| c.local_start);
 
         // Build local snippets
@@ -974,7 +979,7 @@ impl PatchLocator {
             splitted_hunks.extend(h.split(1, patch_context_lines)?);
         }
 
-        self.convert_clean_hunk_offsets(&mut splitted_hunks, conflicts);
+        self.convert_clean_hunk_offsets(&mut splitted_hunks, pre_relocation_conflicts);
         for hunk in splitted_hunks {
             self.process_clean_hunk_single(conflicts, &hunk, &minus_lines, &minus_lines_hasher)?;
         }
@@ -1928,11 +1933,15 @@ impl PatchLocator {
             anyhow::bail!("conflict_diff contains no hunks");
         }
         self.match_conflicting_hunks(conflicts, hunks)?;
+
+        conflicts.sort_by_key(|c| c.local_start);
+        let pre_relocation_conflicts = conflicts.clone();
+
         self.relocate_conflicts(conflicts, prev_conflicts)?;
 
         let hunks = self.diff_to_hunks(&self.clean_diff, true)?;
         if !hunks.is_empty() {
-            self.process_clean_hunks(conflicts, hunks)?;
+            self.process_clean_hunks(conflicts, &pre_relocation_conflicts, hunks)?;
         }
 
         let code_snippets = Arc::new(self.create_code_snippets(conflicts));
