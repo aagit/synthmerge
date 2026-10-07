@@ -1931,7 +1931,7 @@ impl GitUtils {
                 "-C",
                 &dir,
                 "show",
-                "--pretty=",
+                "--pretty=%B",
                 "--no-color",
                 "--histogram",
                 diff_context_lines,
