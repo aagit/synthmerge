@@ -1905,53 +1905,58 @@ impl GitUtils {
                     .iter()
                     .position(|line| line.starts_with("diff --git a"))
                     .unwrap_or(lines.len());
-                let trailer_start = lines[..commit_end]
-                    .iter()
-                    .rposition(|line| *line != "\n")
-                    .and_then(|last_line| {
-                        lines[..last_line]
+
+                let is_filtered_trailer = |line: &str| {
+                    let Some((key, value)) = line.trim_end().split_once(':') else {
+                        return false;
+                    };
+                    let key = key.trim().to_ascii_lowercase();
+                    let value = value.trim().to_ascii_lowercase();
+
+                    key.ends_with("-by")
+                        || key.contains("fixes")
+                        || key.contains("link")
+                        || value.contains("https://")
+                        || value.contains("http://")
+                        || value.contains('@')
+                };
+
+                let mut paragraphs = Vec::new();
+                let mut line_index = 0;
+                while line_index < commit_end {
+                    while line_index < commit_end && lines[line_index].trim().is_empty() {
+                        line_index += 1;
+                    }
+
+                    let paragraph_start = line_index;
+                    while line_index < commit_end && !lines[line_index].trim().is_empty() {
+                        line_index += 1;
+                    }
+
+                    if paragraph_start < line_index {
+                        let paragraph = &lines[paragraph_start..line_index];
+                        let is_last_paragraph = lines[line_index..commit_end]
                             .iter()
-                            .rposition(|line| *line == "\n")
-                            .map(|newline| newline + 1)
-                    })
-                    .unwrap_or(0);
-                let d = lines
-                    .into_iter()
-                    .enumerate()
-                    .filter(|(i, line)| {
-                        if *i < trailer_start || *i >= commit_end {
-                            return true;
+                            .all(|line| line.trim().is_empty());
+                        let is_filtered = if is_last_paragraph {
+                            paragraph.iter().any(|line| is_filtered_trailer(line))
+                        } else {
+                            paragraph.iter().all(|line| is_filtered_trailer(line))
+                        };
+                        if !is_filtered {
+                            paragraphs.push(paragraph.concat());
                         }
-                        !line.split_once(':').is_some_and(|(key, value)| {
-                            let key = key.to_ascii_lowercase();
-                            let value = value.to_ascii_lowercase();
-                            !key.contains(char::is_whitespace)
-                                && (key.ends_with("-by")
-                                    || key.ends_with("fixes")
-                                    || (value.contains('@')
-                                        || value.contains("http://")
-                                        || value.contains("https://")))
-                        })
-                    })
-                    .map(|(_, line)| line)
-                    .collect::<Vec<_>>();
-                let mut in_commit_message = true;
-                let mut previous_newline = false;
-                let d = d
-                    .into_iter()
-                    .filter(|line| {
-                        if line.starts_with("diff --git a") {
-                            in_commit_message = false;
-                        }
-                        if !in_commit_message {
-                            return true;
-                        }
-                        let newline = *line == "\n";
-                        let keep = !newline || !previous_newline;
-                        previous_newline = newline;
-                        keep
-                    })
-                    .collect::<String>();
+                    }
+                }
+
+                let mut d = paragraphs.join("\n");
+                if commit_end < lines.len() {
+                    if !d.is_empty() {
+                        d.push('\n');
+                    }
+                    d.extend(lines[commit_end..].iter().copied());
+                }
+
                 Some(d)
             } else {
                 log::warn!(
