@@ -153,6 +153,19 @@ impl ApiClient {
 
     async fn create_headers(&self) -> Result<reqwest::header::HeaderMap> {
         let mut headers = reqwest::header::HeaderMap::new();
+        if !self.endpoint.no_user_agent {
+            let user_agent = format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+            let user_agent = if let Some(suffix) = &*self.endpoint.user_agent_suffix {
+                format!("{} ({})", user_agent, suffix)
+            } else {
+                user_agent
+            };
+            headers.insert(
+                reqwest::header::USER_AGENT,
+                reqwest::header::HeaderValue::from_str(&user_agent)
+                    .context("Invalid User-Agent")?,
+            );
+        }
         headers.insert(
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_static("application/json"),
@@ -193,6 +206,7 @@ impl ApiClient {
                 );
             }
         }
+        log::trace!("Headers: {:?}", headers);
         Ok(headers)
     }
 

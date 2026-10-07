@@ -39,6 +39,10 @@ pub struct EndpointConfig {
     pub primary: bool,
     #[serde(default = "default_use_backticks")]
     pub use_backticks: bool,
+    #[serde(default)]
+    pub no_user_agent: bool,
+    #[serde(default)]
+    pub user_agent_suffix: Box<Option<String>>,
     #[serde(flatten)]
     pub config: EndpointTypeConfig,
     #[serde(default)]
@@ -356,6 +360,31 @@ impl Config {
             Self::validate_variants(variants, index, path, &endpoint.json, &endpoint.context)?;
         }
         Self::validate_fallbacks(&endpoint.fallbacks, index, path, endpoint.primary)?;
+        Self::validate_headers(endpoint, index, path)?;
+        Ok(())
+    }
+
+    fn validate_headers(endpoint: &EndpointConfig, index: usize, path: &Path) -> Result<()> {
+        if endpoint.no_user_agent && endpoint.user_agent_suffix.as_deref().is_some() {
+            return Err(anyhow::anyhow!(
+                "Endpoint {} in config file {} has no_user_agent set to true but user_agent_suffix is also set",
+                index,
+                path.display()
+            ));
+        }
+        if let Some(headers) = &endpoint.headers
+            && !endpoint.no_user_agent
+        {
+            for key in headers.headers.keys() {
+                if *key.to_lowercase() == reqwest::header::USER_AGENT {
+                    return Err(anyhow::anyhow!(
+                        "Endpoint {} in config file {} has header 'user-agent' set but no_user_agent is set to false",
+                        index,
+                        path.display()
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
