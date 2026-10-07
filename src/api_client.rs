@@ -931,8 +931,10 @@ impl ApiClient {
                     if e.is_timeout() {
                         // Don't retry on timeout errors or it may waste energy
                         log::warn!(
-                            "Timeout error for endpoint {}. Consider increasing the timeout.",
-                            self.endpoint.name
+                            "Timeout error for endpoint {} after {:.1}s (configured timeout: {}ms): {e:?}",
+                            self.endpoint.name,
+                            start.elapsed().as_secs_f64(),
+                            self.endpoint.timeout
                         );
                         self.apply_wait().await;
                         return Err(e.into());
