@@ -84,9 +84,8 @@ impl ApiClient {
     }
 
     pub fn create_client(endpoint: &EndpointConfig) -> Result<reqwest::Client> {
-        let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_millis(endpoint.timeout))
-            .tcp_keepalive(Duration::from_secs(10));
+        let mut builder =
+            reqwest::Client::builder().timeout(Duration::from_millis(endpoint.timeout));
 
         // Add root certificate if specified
         if let Some(cert_path) = &endpoint.root_certificate_pem {
