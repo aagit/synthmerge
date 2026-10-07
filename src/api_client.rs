@@ -928,7 +928,19 @@ impl ApiClient {
                     }
                 }
                 Err(e) => {
-                    if e.is_timeout() {
+                    let mut source = std::error::Error::source(&e);
+                    let mut is_hyper_error = false;
+                    while let Some(err) = source {
+                        if err
+                            .downcast_ref::<hyper_util::client::legacy::Error>()
+                            .is_some()
+                        {
+                            is_hyper_error = true;
+                            break;
+                        }
+                        source = err.source();
+                    }
+                    if e.is_timeout() && !is_hyper_error {
                         // Don't retry on timeout errors or it may waste energy
                         log::warn!(
                             "Timeout error for endpoint {} after {:.1}s (configured timeout: {}ms): {e:?}",
