@@ -1891,10 +1891,67 @@ impl GitUtils {
     }
 
     /// Extract the patch from a specific commit hash
-    pub fn extract_diff(&self, commit_hash: &str, max_context_size: u32) -> Result<Option<String>> {
-        let diff = self.git_show_in_dir(commit_hash, None, None)?;
+    pub fn extract_diff(
+        &self,
+        commit_hash: &str,
+        max_context_size: u32,
+        dir: Option<&str>,
+    ) -> Result<Option<String>> {
+        let diff = self.git_show_in_dir(commit_hash, dir, None)?;
         Ok(diff.and_then(|d| {
             if d.len() <= max_context_size.try_into().unwrap() {
+                let lines = d.split_inclusive('\n').collect::<Vec<_>>();
+                let commit_end = lines
+                    .iter()
+                    .position(|line| line.starts_with("diff --git a"))
+                    .unwrap_or(lines.len());
+                let trailer_start = lines[..commit_end]
+                    .iter()
+                    .rposition(|line| *line != "\n")
+                    .and_then(|last_line| {
+                        lines[..last_line]
+                            .iter()
+                            .rposition(|line| *line == "\n")
+                            .map(|newline| newline + 1)
+                    })
+                    .unwrap_or(0);
+                let d = lines
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(i, line)| {
+                        if *i < trailer_start || *i >= commit_end {
+                            return true;
+                        }
+                        !line.split_once(':').is_some_and(|(key, value)| {
+                            let key = key.to_ascii_lowercase();
+                            let value = value.to_ascii_lowercase();
+                            !key.contains(char::is_whitespace)
+                                && (key.ends_with("-by")
+                                    || key.ends_with("fixes")
+                                    || (value.contains('@')
+                                        || value.contains("http://")
+                                        || value.contains("https://")))
+                        })
+                    })
+                    .map(|(_, line)| line)
+                    .collect::<Vec<_>>();
+                let mut in_commit_message = true;
+                let mut previous_newline = false;
+                let d = d
+                    .into_iter()
+                    .filter(|line| {
+                        if line.starts_with("diff --git a") {
+                            in_commit_message = false;
+                        }
+                        if !in_commit_message {
+                            return true;
+                        }
+                        let newline = *line == "\n";
+                        let keep = !newline || !previous_newline;
+                        previous_newline = newline;
+                        keep
+                    })
+                    .collect::<String>();
                 Some(d)
             } else {
                 log::warn!(
@@ -1907,7 +1964,7 @@ impl GitUtils {
     }
 
     /// Extract the patch from a specific commit hash
-    pub fn git_show_in_dir(
+    fn git_show_in_dir(
         &self,
         commit_hash: &str,
         dir: Option<&str>,
@@ -1944,7 +2001,11 @@ impl GitUtils {
         };
 
         if !output.status.success() {
-            return Ok(None);
+            return Err(anyhow::anyhow!(
+                "Git show failed for commit {}: {}",
+                commit_hash,
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
